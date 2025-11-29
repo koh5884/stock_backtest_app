@@ -138,7 +138,7 @@ def run_screening_page():
     st.markdown("---") # 区切り線
     
     # 1. 'all signal' が True の銘柄を抽出
-    signal_df = st.session_state.screening_df[st.session_state.screening_df['all signal'] == True]
+    signal_df = st.session_state.screening_df[st.session_state.screening_df['All_signal'] == True]
     
     if not signal_df.empty:
         st.subheader("📈 シグナル点灯銘柄の最新チャート (根拠期間表示)")
