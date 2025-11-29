@@ -328,8 +328,8 @@ def plot_signal_chart(ticker, name, daily_data, weekly_data, is_japanese=False):
     """
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
     
-    # === 日足チャート（直近3週間 = 15営業日） ===
-    daily_plot = daily_data.tail(15)
+    # === 日足チャート（直近6週間 = 30営業日） ===
+    daily_plot = daily_data.tail(30)
     
     # ローソク足描画
     _plot_candlestick(ax1, daily_plot)
@@ -359,8 +359,8 @@ def plot_signal_chart(ticker, name, daily_data, weekly_data, is_japanese=False):
     ax1.legend(loc='upper left', fontsize=10)
     ax1.grid(True, alpha=0.3)
     
-    # === 週足チャート（直近3ヶ月 = 13週） ===
-    weekly_plot = weekly_data.tail(13)
+    # === 週足チャート（直近6ヶ月 = 26週） ===
+    weekly_plot = weekly_data.tail(26)
     
     # ローソク足描画
     _plot_candlestick(ax2, weekly_plot)
