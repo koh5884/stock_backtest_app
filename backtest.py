@@ -190,10 +190,10 @@ class SwingTradeBacktest:
             # エントリー
             ax1.scatter(trade['entry_date'], trade['entry_price'], marker='^', color='green', s=80, zorder=5)
             # エグジット (黒枠線を追加して視認性向上)
-            if 'Stop Loss' in trade['exit_reason']:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='v', color='red', s=80, zorder=5, edgecolors='black', linewidth=1.5) # 修正
+            if 'Stop Loss' in trade['exit_reason']:
+                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='v', color='red', s=80, zorder=5, edgecolors='black', linewidth=1.5)
             else:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='o', color='blue', s=80, zorder=5, edgecolors='black', linewidth=1.5) # 修正
+                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='o', color='blue', s=80, zorder=5, edgecolors='black', linewidth=1.5)
             # 線で結ぶ
             color = 'green' if trade['profit'] > 0 else 'red'
             ax1.plot([trade['entry_date'], trade['exit_date']], [trade['entry_price'], trade['exit_price']],
