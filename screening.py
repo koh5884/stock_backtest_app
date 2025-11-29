@@ -93,3 +93,128 @@ def get_data_and_screen_advanced(stock_list):
     df = df.sort_values(["All_Signal", "Slope_MA20"], ascending=[False, False])
 
     return df
+
+
+def get_chart_data_for_ticker(ticker, period="6mo"):
+    """
+    個別銘柄のチャートデータを取得
+    
+    Parameters:
+    -----------
+    ticker : str
+        銘柄コード
+    period : str
+        取得期間（デフォルト: 6ヶ月）
+    
+    Returns:
+    --------
+    daily_data : DataFrame
+        日足データ
+    weekly_data : DataFrame
+        週足データ
+    """
+    try:
+        # 日足データ取得
+        stock = yf.Ticker(ticker)
+        daily_data = stock.history(period=period)
+        
+        if daily_data.empty:
+            return None, None
+        
+        # 移動平均線を計算
+        daily_data['MA_short'] = daily_data['Close'].rolling(MA_SHORT).mean()
+        daily_data['MA_mid'] = daily_data['Close'].rolling(MA_MID).mean()
+        daily_data['MA_long'] = daily_data['Close'].rolling(MA_LONG).mean()
+        
+        # 週足データを作成（日足から集計）
+        weekly_data = daily_data.resample('W-FRI').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
+        
+        # 週足の移動平均線（週足用の期間）
+        weekly_data['MA_short'] = weekly_data['Close'].rolling(4).mean()  # 約1ヶ月
+        weekly_data['MA_mid'] = weekly_data['Close'].rolling(13).mean()   # 約3ヶ月
+        weekly_data['MA_long'] = weekly_data['Close'].rolling(26).mean()  # 約6ヶ月
+        
+        return daily_data, weekly_data
+        
+    except Exception as e:
+        print(f"チャートデータ取得エラー ({ticker}): {str(e)}")
+        return None, None
+
+
+def plot_signal_chart(ticker, name, daily_data, weekly_data, is_japanese=False):
+    """
+    シグナル銘柄のチャートを描画
+    
+    Parameters:
+    -----------
+    ticker : str
+        銘柄コード
+    name : str
+        銘柄名
+    daily_data : DataFrame
+        日足データ
+    weekly_data : DataFrame
+        週足データ
+    is_japanese : bool
+        日本株かどうか
+    
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        グラフオブジェクト
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib
+    matplotlib.use('Agg')
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+    
+    # === 日足チャート ===
+    # 直近60日分のみ表示
+    daily_plot = daily_data.tail(60)
+    
+    ax1.plot(daily_plot.index, daily_plot['Close'], label='Close', linewidth=2, color='black', alpha=0.8)
+    ax1.plot(daily_plot.index, daily_plot['MA_short'], label=f'MA{MA_SHORT}', linewidth=1.5, color='blue', alpha=0.7)
+    ax1.plot(daily_plot.index, daily_plot['MA_mid'], label=f'MA{MA_MID}', linewidth=1.5, color='orange', alpha=0.7)
+    ax1.plot(daily_plot.index, daily_plot['MA_long'], label=f'MA{MA_LONG}', linewidth=1.5, color='red', alpha=0.7)
+    
+    # 最新のシグナルポイントをマーク
+    latest_price = daily_plot['Close'].iloc[-1]
+    latest_date = daily_plot.index[-1]
+    ax1.scatter(latest_date, latest_price, marker='*', color='gold', s=500, zorder=10, 
+               edgecolors='red', linewidth=2, label='Signal')
+    
+    ax1.set_title(f'日足チャート: {name} ({ticker})', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Price')
+    ax1.legend(loc='upper left', fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    
+    # === 週足チャート ===
+    # 直近26週分のみ表示
+    weekly_plot = weekly_data.tail(26)
+    
+    ax2.plot(weekly_plot.index, weekly_plot['Close'], label='Close', linewidth=2, color='black', alpha=0.8)
+    ax2.plot(weekly_plot.index, weekly_plot['MA_short'], label='MA4(週)', linewidth=1.5, color='blue', alpha=0.7)
+    ax2.plot(weekly_plot.index, weekly_plot['MA_mid'], label='MA13(週)', linewidth=1.5, color='orange', alpha=0.7)
+    ax2.plot(weekly_plot.index, weekly_plot['MA_long'], label='MA26(週)', linewidth=1.5, color='red', alpha=0.7)
+    
+    # 最新のシグナルポイントをマーク
+    latest_price_w = weekly_plot['Close'].iloc[-1]
+    latest_date_w = weekly_plot.index[-1]
+    ax2.scatter(latest_date_w, latest_price_w, marker='*', color='gold', s=500, zorder=10,
+               edgecolors='red', linewidth=2, label='Signal')
+    
+    ax2.set_title(f'週足チャート: {name} ({ticker})', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Price')
+    ax2.legend(loc='upper left', fontsize=10)
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    return fig

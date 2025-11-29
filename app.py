@@ -132,6 +132,56 @@ def run_screening_page():
         
         st.dataframe(styled_df, use_container_width=True, height=400)
 
+
+        # === All Signal銘柄のチャート表示 ===
+        all_signal_tickers = df[df["All_Signal"] == True]
+        
+        if len(all_signal_tickers) > 0:
+            st.header("🌟 All Signal銘柄のチャート")
+            st.caption(f"全条件クリア銘柄: {len(all_signal_tickers)}銘柄のチャートを表示します")
+            
+            # 表示件数の制限（オプション）
+            max_charts = st.slider("表示する銘柄数", 1, min(10, len(all_signal_tickers)), 
+                                   min(5, len(all_signal_tickers)), key="chart_slider")
+            
+            for idx, row in all_signal_tickers.head(max_charts).iterrows():
+                ticker = row['Code']
+                name = row['Name']
+                
+                with st.expander(f"📊 {name} ({ticker}) - Slope: {row['Slope_MA20']:.2f}%", expanded=False):
+                    with st.spinner(f"{ticker} のチャートを読み込み中..."):
+                        try:
+                            from screening import get_chart_data_for_ticker, plot_signal_chart
+                            
+                            # データ取得
+                            daily_data, weekly_data = get_chart_data_for_ticker(ticker)
+                            
+                            if daily_data is not None and weekly_data is not None:
+                                # チャート描画
+                                is_japanese = '.T' in ticker
+                                fig = plot_signal_chart(ticker, name, daily_data, weekly_data, is_japanese)
+                                st.pyplot(fig)
+                                plt.close(fig)
+                                
+                                # 追加情報
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("最新価格", f"{daily_data['Close'].iloc[-1]:.2f}")
+                                with col2:
+                                    latest_change = ((daily_data['Close'].iloc[-1] / daily_data['Close'].iloc[-2]) - 1) * 100
+                                    st.metric("前日比", f"{latest_change:+.2f}%")
+                                with col3:
+                                    st.metric("MA20傾き", f"{row['Slope_MA20']:.2f}%")
+                            else:
+                                st.error(f"⚠️ {ticker} のデータ取得に失敗しました")
+                                
+                        except Exception as e:
+                            st.error(f"⚠️ チャート表示エラー: {str(e)}")
+        else:
+            st.info("💡 All Signal銘柄がありません")
+
+        st.header("📌 バックテスト")
+
         # 銘柄選択
         st.header("📌 バックテスト")
         
