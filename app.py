@@ -160,61 +160,60 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            for idx, ticker in enumerate(selected):
+                status_text.text(f"バックテスト実行中... {ticker} ({idx+1}/{len(selected)})")
+                progress_bar.progress((idx + 1) / len(selected))
+                
+                try:
+                    from backtest import SwingTradeBacktest, TradingRules
+                    
+                    rules = TradingRules()
+                    bt = SwingTradeBacktest(ticker, start_date, end_date, rules)
+                    perf = bt.run(show_charts=False, show_detailed=False)
+                    
+                    if perf:
+                        # 銘柄名を取得 (前回の修正を再適用)
+                        name = df[df['Code']==ticker]['Name'].values[0]
 
-            for idx, ticker in enumerate(selected):
-                status_text.text(f"バックテスト実行中... {ticker} ({idx+1}/{len(selected)})")
-                progress_bar.progress((idx + 1) / len(selected))
-                
-                try:
-                    from backtest import SwingTradeBacktest, TradingRules
-                    
-                    rules = TradingRules()
-                    bt = SwingTradeBacktest(ticker, start_date, end_date, rules)
-                    perf = bt.run(show_charts=False, show_detailed=False)
-                    
-                    if perf:
-                        # 銘柄名を取得
-                        name = df[df['Code']==ticker]['Name'].values[0]
+                        # 結果リストへの追加
+                        backtest_results.append({
+                            'Code': ticker,
+                            'Name': name,
+                            'Total Trades': perf['total_trades'],
+                            'Win Rate (%)': perf['win_rate'],
+                            'Total P&L': perf['total_profit'],
+                            'Avg Profit (%)': perf['avg_profit_pct'],
+                            'Avg Loss (%)': perf['avg_loss_pct'],
+                            'Profit Factor': perf['profit_factor'],
+                            'Max Drawdown': perf['max_drawdown'],
+                            'Avg Holding Days': perf['avg_holding_days']
+                        })
+                        
+                        # === グラフ表示部分の追加（銘柄名を使用） ===
+                        with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る"):
+                            # 1. 全体オーバービュー
+                            st.subheader("全体推移")
+                            fig_overview = bt.plot_overview()
+                            if fig_overview:
+                                st.pyplot(fig_overview)
+                                import matplotlib.pyplot as plt
+                                plt.close(fig_overview) # メモリ解放
+                            
+                            # 2. 個別トレード（すべて表示）
+                            st.subheader("個別トレード詳細")
+                            if perf['total_trades'] > 0:
+                                trade_figs = bt.plot_all_trades()
+                                for i, fig in enumerate(trade_figs):
+                                    st.caption(f"Trade #{i+1}")
+                                    st.pyplot(fig)
+                                    plt.close(fig) # メモリ解放
+                            else:
+                                st.info("トレードはありませんでした。")
 
-                        # 結果リストへの追加
-                        backtest_results.append({
-                            'Code': ticker,
-                            'Name': name,
-                            'Total Trades': perf['total_trades'],
-                            'Win Rate (%)': perf['win_rate'],
-                            'Total P&L': perf['total_profit'],
-                            'Avg Profit (%)': perf['avg_profit_pct'],
-                            'Avg Loss (%)': perf['avg_loss_pct'],
-                            'Profit Factor': perf['profit_factor'],
-                            'Max Drawdown': perf['max_drawdown'],
-                            'Avg Holding Days': perf['avg_holding_days']
-                        })
-                        
-                        # === グラフ表示部分の追加（銘柄名を使用） ===
-                        with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る"):
-                            # 1. 全体オーバービュー
-                            st.subheader("全体推移")
-                            fig_overview = bt.plot_overview()
-                            if fig_overview:
-                                st.pyplot(fig_overview)
-                                import matplotlib.pyplot as plt # pltのインポートはここに残します
-                                plt.close(fig_overview) # メモリ解放
-                            
-                            # 2. 個別トレード（すべて表示）
-                            st.subheader("個別トレード詳細")
-                            if perf['total_trades'] > 0:
-                                trade_figs = bt.plot_all_trades()
-                                for i, fig in enumerate(trade_figs):
-                                    st.caption(f"Trade #{i+1}")
-                                    st.pyplot(fig)
-                                    plt.close(fig) # メモリ解放
-                            else:
-                                st.info("トレードはありませんでした。")
-
-                except Exception as e:
-                    st.warning(f"⚠️ {ticker}: {str(e)}")
-                    continue
-...            
+                except Exception as e:
+                    st.warning(f"⚠️ {ticker}: {str(e)}")
+                    continue
+# ... (forループ後の progress_bar.empty() に続く)...            
             progress_bar.empty()
             status_text.empty()
             
