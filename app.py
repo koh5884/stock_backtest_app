@@ -48,8 +48,11 @@ def run_screening_page():
 
     # --- サイドバー ---
     st.sidebar.header("スクリーニング対象")
-    use_sp500 = st.sidebar.checkbox("S&P 500（米国株）", value=True)
-    use_nikkei = st.sidebar.checkbox("日経225（日本株）", value=False)
+    market_selection = st.sidebar.radio(
+        "市場を選択",
+        ("S&P 500（米国株）", "日経225（日本株）"),
+        index=0 # デフォルトはS&P 500
+    )
 
     # 銘柄リストの決定
     stock_list = []
