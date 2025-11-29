@@ -304,7 +304,7 @@ def run_screening_page():
 # 🎯 関数定義: 単一銘柄バックテストページ
 # =======================================================
 def run_single_backtest_page():
-    st.title("🎯 バックテストのみ")
+    st.title("🎯 バックテスト")
     st.markdown("銘柄コードと期間を入力し、バックテストを実行します。")
     
     # 1. 入力フォーム
@@ -454,8 +454,8 @@ st.sidebar.title("メニュー")
 page_selection = st.sidebar.radio("機能を選択", ["1. 株式スクリーニング＆一括バックテスト", "2. 単一銘柄バックテスト"])
 
 # 選択された機能の実行
-if page_selection == "1. 株式スクリーニング＆一括バックテスト":
+if page_selection == "1. 株式スクリーニング＆バックテスト":
     run_screening_page()
     
-elif page_selection == "2. 単一銘柄バックテスト":
+elif page_selection == "2. バックテストのみ":
     run_single_backtest_page()
