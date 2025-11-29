@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 from ticker_list import sp500_list, nikkei225_list
 from screening import MA_SHORT, MA_MID, MA_LONG, SLOPE_THRESHOLD, SLOPE_PERIOD
@@ -19,7 +17,7 @@ if 'backtest_done' not in st.session_state:
 if 'backtest_results' not in st.session_state:
     st.session_state.backtest_results = None
 
-st.title("📈 株式スクリーニング＆ヒートマップ分析")
+st.title("📈 株式スクリーニング＆バックテスト")
 st.markdown("""
 このアプリは移動平均線を使った**押し目買い戦略**のスクリーニングツールです。  
 強いトレンドの中で一時的に調整した銘柄を自動検出します。
@@ -60,7 +58,7 @@ else:
             else:
                 st.session_state.screening_done = True
                 st.session_state.screening_df = df
-                st.session_state.backtest_done = False  # スクリーニングし直したらバックテスト結果をクリア
+                st.session_state.backtest_done = False
 
 # スクリーニング結果の表示
 if st.session_state.screening_done and st.session_state.screening_df is not None:
@@ -92,45 +90,8 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
     
     st.dataframe(styled_df, use_container_width=True, height=400)
 
-    # 統計サマリー
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("全条件クリア", f"{df['All_Signal'].sum()}銘柄")
-    with col2:
-        st.metric("強トレンド（C1）", f"{df['C1_Trend'].sum()}銘柄")
-    with col3:
-        st.metric("平均傾き", f"{df['Slope_MA20'].mean():.2f}%")
-
-    # ヒートマップ表示
-    st.header("🔥 条件充足ヒートマップ")
-    st.caption("濃い色ほど条件を満たしています。数値はMA20の傾き（%）")
-
-    # 上位30銘柄に絞る
-    display_df_heat = df.head(30)
-    heatmap_df = display_df_heat.set_index("Code")[[
-        "Slope_MA20", "C1_Trend", "C2_Long", "C3_Pullback", "C4_Trigger"
-    ]]
-
-    # True/False を 1/0 に変換
-    hm_numeric = heatmap_df.replace({True: 1, False: 0})
-
-    fig, ax = plt.subplots(figsize=(12, max(6, len(display_df_heat) * 0.3)))
-    sns.heatmap(
-        hm_numeric,
-        annot=heatmap_df.values,
-        fmt="",
-        cmap="RdYlGn",
-        linewidths=0.5,
-        cbar_kws={'label': '条件充足度'},
-        ax=ax
-    )
-    ax.set_xlabel("条件項目", fontsize=12)
-    ax.set_ylabel("銘柄コード", fontsize=12)
-    plt.tight_layout()
-    st.pyplot(fig)
-
     # 銘柄選択
-    st.header("📌 注目銘柄の選択")
+    st.header("📌 バックテスト")
     
     # デフォルトで全条件クリア銘柄を選択
     default_tickers = df[df["All_Signal"] == True]["Code"].tolist()[:5]
@@ -146,9 +107,7 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
         selected_info = df[df["Code"].isin(selected)][["Code", "Name", "Slope_MA20", "All_Signal"]]
         st.dataframe(selected_info, use_container_width=True)
         
-        # バックテストセクション
-        st.subheader("🔬 バックテスト設定")
-        
+        # バックテスト設定
         col1, col2 = st.columns(2)
         with col1:
             backtest_period = st.selectbox(
@@ -293,27 +252,5 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                     st.write("**利益トップ3**")
                     top_profit = results_df.nlargest(3, 'Total P&L')[['Code', 'Name', 'Total P&L']]
                     st.dataframe(top_profit, use_container_width=True, hide_index=True)
-            
-            # CSVダウンロード
-            st.subheader("💾 データのエクスポート")
-            csv = results_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 バックテスト結果をダウンロード",
-                data=csv,
-                file_name=f"backtest_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
-                key="backtest_download"
-            )
     else:
         st.info("💡 銘柄を選択してバックテストを実行できます")
-
-    # CSV ダウンロード（スクリーニング結果）
-    st.header("💾 スクリーニング結果のエクスポート")
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 スクリーニング結果をダウンロード",
-        data=csv,
-        file_name=f"screening_results_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
-        mime="text/csv",
-        key="screening_download"
-    )
