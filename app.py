@@ -279,15 +279,3 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
             with col4:
                 profitable = len(results_df[results_df['Total P&L'] > 0])
                 st.metric("黒字銘柄", f"{profitable}/{len(results_df)}")
-            
-            if show_details:
-                st.subheader("📋 詳細分析")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**勝率トップ3**")
-                    st.dataframe(results_df.nlargest(3, 'Win Rate (%)')[['Code', 'Name', 'Win Rate (%)']], use_container_width=True, hide_index=True)
-                with col2:
-                    st.write("**利益トップ3**")
-                    st.dataframe(results_df.nlargest(3, 'Total P&L')[['Code', 'Name', 'Total P&L']], use_container_width=True, hide_index=True)
-    else:
-        st.info("💡 銘柄を選択してバックテストを実行できます")
