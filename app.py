@@ -451,7 +451,7 @@ def run_single_backtest_page():
 
 # ナビゲーションの配置
 st.sidebar.title("メニュー")
-page_selection = st.sidebar.radio("機能を選択", ["1. 株式スクリーニング＆一括バックテスト", "2. 単一銘柄バックテスト"])
+page_selection = st.sidebar.radio("機能を選択", ["1. 株式スクリーニング＆バックテスト", "2. バックテストのみ"])
 
 # 選択された機能の実行
 if page_selection == "1. 株式スクリーニング＆バックテスト":
