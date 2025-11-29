@@ -9,23 +9,33 @@ import warnings
 
 # Streamlitでの描画用にバックエンド設定
 import matplotlib
-matplotlib.use('Agg') 
+matplotlib.use('Agg')  
 
 warnings.filterwarnings('ignore')
 
-# （TradingRulesクラスは変更なしのため省略）
 class TradingRules:
+    """トレードルールの設定を管理するクラス"""
+
     def __init__(self):
-        self.ma_short = 7
-        self.ma_mid = 20
-        self.ma_long = 60
-        self.slope_threshold = 1.2
-        self.slope_period = 5
-        self.stop_loss_percentage = 0.98
-        self.stop_loss_lookback = 5
+        # === 移動平均線の設定 ===
+        self.ma_short = 7   # 短期MA（日足）
+        self.ma_mid = 20    # 中期MA（日足）
+        self.ma_long = 60   # 長期MA（日足）
+
+        # === エントリー条件 ===
+        self.slope_threshold = 1.2  # 傾き閾値 (%)
+        self.slope_period = 5       # 傾き計算期間 (日)
+
+        # === エグジット条件 ===
+        self.stop_loss_percentage = 0.98  # 損切り (2%)
+        self.stop_loss_lookback = 5       # 直近安値を何日分見るか
+
+        # === 表示設定 ===
         self.show_detailed_charts = False
 
 class SwingTradeBacktest:
+    """シンプル化されたバックテストクラス（Streamlit統合用）"""
+
     def __init__(self, ticker, start_date, end_date, rules=None):
         self.ticker = ticker
         self.start_date = start_date
@@ -34,6 +44,7 @@ class SwingTradeBacktest:
         self.daily_data = None
         self.trades = []
         self.trades_df = None # 初期化を追加
+# ... (以降のメソッドが続く)
 
     # ... (fetch_data, calculate_indicators, generate_signals, _record_trade は変更なし) ...
     # 省略しています。元のコードのまま記述してください。
