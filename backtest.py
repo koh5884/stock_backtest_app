@@ -178,11 +178,11 @@ class SwingTradeBacktest:
         for _, trade in self.trades_df.iterrows():
             # エントリー
             ax1.scatter(trade['entry_date'], trade['entry_price'], marker='^', color='green', s=80, zorder=5)
-            # エグジット
-            if 'Stop Loss' in trade['exit_reason']:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='v', color='red', s=80, zorder=5)
-            else:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='o', color='blue', s=80, zorder=5)
+            # エグジット (黒枠線を追加して視認性向上)
+            if 'Stop Loss' in trade['exit_reason']:
+                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='v', color='red', s=80, zorder=5, edgecolors='black', linewidth=1.5) # 修正
+            else:
+                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='o', color='blue', s=80, zorder=5, edgecolors='black', linewidth=1.5) # 修正
             # 線で結ぶ
             color = 'green' if trade['profit'] > 0 else 'red'
             ax1.plot([trade['entry_date'], trade['exit_date']], [trade['entry_price'], trade['exit_price']],
@@ -249,7 +249,9 @@ class SwingTradeBacktest:
                            marker='v' if trade['profit']<0 else 'o',
                            color=exit_color, 
                            s=150, zorder=10, 
-                           label='Exit') # ← ここに黒枠線を追加する
+                           edgecolors='black', 
+                           linewidth=2,        
+                           label='Exit') 
             except KeyError:
                 pass # 日付インデックスが見つからない場合の安全策
 
