@@ -9,10 +9,189 @@ from datetime import timedelta
 import matplotlib
 matplotlib.use('Agg')  
 
-# ... (TradingRules, SwingTradeBacktest.__init__, _prepare_data, _run_strategy, _calculate_performance, run は変更なし) ...
+# =======================================================
+# 📌 TradingRules クラス
+# =======================================================
+class TradingRules:
+    """トレードルールの設定を管理するクラス"""
 
+    def __init__(self):
+        # === 移動平均線の設定 ===
+        self.ma_short = 7   # 短期MA（日足）
+        self.ma_mid = 20    # 中期MA（日足）
+        self.ma_long = 60   # 長期MA（日足）
+
+        # === エントリー条件 ===
+        self.slope_threshold = 1.2  # 傾き閾値 (%)
+        self.slope_period = 5       # 傾き計算期間 (日)
+
+        # === エグジット条件 ===
+        self.stop_loss_percentage = 0.98  # 損切り (2%)
+        self.stop_loss_lookback = 5       # 直近安値を何日分見るか
+
+
+# =======================================================
+# 📌 SwingTradeBacktest クラス
+# =======================================================
 class SwingTradeBacktest:
-    # ... (前略)
+    """シンプル化されたバックテストクラス（Streamlit統合用）"""
+
+    def __init__(self, ticker, start_date, end_date, rules: TradingRules):
+        self.ticker = ticker
+        self.start_date = start_date
+        self.end_date = end_date
+        self.rules = rules
+        self.data = None
+        self.trades_df = pd.DataFrame()
+        self.performance = None
+        self.equity_curve = None
+
+
+    def _prepare_data(self):
+        """データを取得し、MAとシグナルを計算する"""
+        try:
+            # データ取得
+            self.data = yf.download(
+                self.ticker, 
+                start=self.start_date, 
+                end=self.end_date, 
+                progress=False
+            )
+            if self.data.empty:
+                raise ValueError("指定された期間のデータが取得できませんでした。")
+        except Exception as e:
+            raise Exception(f"データ取得エラー: {e}")
+
+        # MA計算
+        self.data['MA_Short'] = self.data['Close'].rolling(self.rules.ma_short).mean()
+        self.data['MA_Mid'] = self.data['Close'].rolling(self.rules.ma_mid).mean()
+        self.data['MA_Long'] = self.data['Close'].rolling(self.rules.ma_long).mean()
+        
+        # 傾き計算
+        ma_mid_shifted = self.data['MA_Mid'].shift(self.rules.slope_period)
+        self.data['Slope_MA_Mid'] = (self.data['MA_Mid'] / ma_mid_shifted - 1) * 100
+        
+        self.data.dropna(inplace=True)
+
+
+    def _run_strategy(self):
+        """トレード戦略のロジックを実行する"""
+        if self.data is None or self.data.empty:
+            return
+
+        trades = []
+        in_trade = False
+        entry_price = 0
+        entry_date = None
+        
+        data = self.data.copy()
+
+        for i in range(len(data)):
+            row = data.iloc[i]
+            
+            # --- エントリー条件 ---
+            C1_Trend = row['Slope_MA_Mid'] >= self.rules.slope_threshold
+            C2_Long = row['MA_Mid'] > row['MA_Long']
+            C3_Pullback = row['MA_Short'] < row['MA_Mid']
+            C4_Trigger = row['Close'] > row['MA_Short']
+            
+            entry_signal = C1_Trend and C2_Long and C3_Pullback and C4_Trigger
+
+            if not in_trade and entry_signal:
+                # エントリー
+                in_trade = True
+                entry_price = row['Close']
+                entry_date = data.index[i]
+            
+            # --- エグジット条件 ---
+            if in_trade:
+                exit_signal = False
+                exit_reason = ""
+                exit_price = 0
+                
+                # 損切りライン (直近N日間の安値 * 損切り率)
+                lookback_low = data['Low'].iloc[max(0, i - self.rules.stop_loss_lookback):i].min()
+                stop_loss_level = lookback_low * self.rules.stop_loss_percentage
+                
+                # 損切り判定
+                if row['Low'] < stop_loss_level:
+                    exit_signal = True
+                    exit_reason = "Stop Loss"
+                    exit_price = stop_loss_level 
+
+                # トレード終了処理
+                if exit_signal or (i == len(data) - 1):
+                    exit_date = data.index[i] if exit_signal else data.index[-1]
+                    final_exit_price = exit_price if exit_signal else row['Close']
+                    
+                    if exit_date > entry_date:
+                        profit = final_exit_price - entry_price
+                        profit_pct = (final_exit_price / entry_price - 1) * 100
+                        holding_days = (exit_date - entry_date).days
+
+                        trades.append({
+                            'entry_date': entry_date,
+                            'entry_price': entry_price,
+                            'exit_date': exit_date,
+                            'exit_price': final_exit_price,
+                            'profit': profit,
+                            'profit_pct': profit_pct,
+                            'holding_days': holding_days,
+                            'exit_reason': exit_reason if exit_signal else "Time Out"
+                        })
+                    
+                    in_trade = False
+        
+        self.trades_df = pd.DataFrame(trades)
+
+
+    def _calculate_performance(self):
+        """パフォーマンス指標を計算する"""
+        if self.trades_df.empty:
+            self.performance = None
+            return
+
+        trades_df = self.trades_df.copy()
+
+        total_trades = len(trades_df)
+        winning_trades = len(trades_df[trades_df['profit'] > 0])
+        losing_trades = total_trades - winning_trades
+        
+        win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+        total_profit = trades_df['profit'].sum()
+        
+        avg_profit = trades_df[trades_df['profit'] > 0]['profit'].sum() / winning_trades if winning_trades > 0 else 0
+        avg_loss = trades_df[trades_df['profit'] <= 0]['profit'].sum() / losing_trades if losing_trades > 0 else 0
+        
+        avg_profit_pct = trades_df[trades_df['profit'] > 0]['profit_pct'].mean() if winning_trades > 0 else 0
+        avg_loss_pct = trades_df[trades_df['profit'] <= 0]['profit_pct'].mean() if losing_trades > 0 else 0
+
+        # ドローダウン計算
+        trades_df['cumulative_profit'] = trades_df['profit'].cumsum()
+        trades_df['running_max'] = trades_df['cumulative_profit'].cummax()
+        trades_df['drawdown'] = trades_df['cumulative_profit'] - trades_df['running_max']
+        max_drawdown = trades_df['drawdown'].min()
+
+        avg_holding_days = trades_df['holding_days'].mean()
+
+        self.performance = {
+            'total_trades': total_trades,
+            'winning_trades': winning_trades,
+            'losing_trades': losing_trades,
+            'win_rate': win_rate,
+            'total_profit': total_profit,
+            'avg_profit': avg_profit,
+            'avg_loss': avg_loss,
+            'avg_profit_pct': avg_profit_pct,
+            'avg_loss_pct': avg_loss_pct,
+            'max_drawdown': max_drawdown,
+            'avg_holding_days': avg_holding_days,
+            'profit_factor': abs(avg_profit / avg_loss) if avg_loss != 0 else np.inf
+        }
+
+        # エクイティカーブ（累積損益）
+        self.equity_curve = trades_df[['cumulative_profit']].reset_index(drop=True)
+
 
     def run(self):
         """バックテストを実行し、結果を返す"""
@@ -31,7 +210,6 @@ class SwingTradeBacktest:
     # =======================================================
 
     def _plot_candlestick(self, ax, data):
-        # ... (変更なし) ...
         """ローソク足描画ヘルパー (陽線: 緑, 陰線: 赤)"""
         width = 0.6
         for i, (idx, row) in enumerate(data.iterrows()):
@@ -61,7 +239,7 @@ class SwingTradeBacktest:
         try:
             # データコピーとインデックスリセットをローカルに行う
             plot_data = self.data.reset_index().copy() 
-            data_indices = plot_data.index # 0, 1, 2, ...
+            data_indices = plot_data.index
             
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=False)
             fig.suptitle(f"{self.ticker} | バックテスト概要", fontsize=16, fontweight='bold')
