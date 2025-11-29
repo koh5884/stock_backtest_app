@@ -146,21 +146,20 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
         with col2:
             show_details = st.checkbox("詳細情報を表示", value=True, key="detail_checkbox")
         
-        if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
+if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
             # 期間設定
             period_map = {"1年": 365, "2年": 730, "3年": 1095, "5年": 1825}
             days = period_map[backtest_period]
             end_date = pd.Timestamp.now().strftime('%Y-%m-%d')
             start_date = (pd.Timestamp.now() - pd.Timedelta(days=days)).strftime('%Y-%m-%d')
             
-            # バックテスト期間を保存
             st.session_state.backtest_period = f"{start_date} ～ {end_date}"
             
-            # バックテスト実行
             backtest_results = []
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            # --- ここからループ処理の修正 ---
             for idx, ticker in enumerate(selected):
                 status_text.text(f"バックテスト実行中... {ticker} ({idx+1}/{len(selected)})")
                 progress_bar.progress((idx + 1) / len(selected))
@@ -168,14 +167,12 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                 try:
                     from backtest import SwingTradeBacktest, TradingRules
                     
-                    # ルール設定
                     rules = TradingRules()
-                    
-                    # バックテスト実行
                     bt = SwingTradeBacktest(ticker, start_date, end_date, rules)
                     perf = bt.run(show_charts=False, show_detailed=False)
                     
                     if perf:
+                        # 結果リストへの追加
                         backtest_results.append({
                             'Code': ticker,
                             'Name': df[df['Code']==ticker]['Name'].values[0],
@@ -188,13 +185,37 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                             'Max Drawdown': perf['max_drawdown'],
                             'Avg Holding Days': perf['avg_holding_days']
                         })
+                        
+                        # === グラフ表示部分の追加 ===
+                        # Expanderを使って銘柄ごとに詳細を格納
+                        with st.expander(f"📈 {ticker} の詳細チャート・トレード履歴を見る"):
+                            
+                            # 1. 全体オーバービュー
+                            st.subheader("全体推移")
+                            fig_overview = bt.plot_overview()
+                            if fig_overview:
+                                st.pyplot(fig_overview)
+                                plt.close(fig_overview) # メモリ解放
+                            
+                            # 2. 個別トレード（すべて表示）
+                            st.subheader("個別トレード詳細")
+                            if perf['total_trades'] > 0:
+                                trade_figs = bt.plot_all_trades()
+                                for i, fig in enumerate(trade_figs):
+                                    st.caption(f"Trade #{i+1}")
+                                    st.pyplot(fig)
+                                    plt.close(fig) # メモリ解放
+                            else:
+                                st.info("トレードはありませんでした。")
+
                 except Exception as e:
                     st.warning(f"⚠️ {ticker}: {str(e)}")
                     continue
+            # --- ループ処理ここまで ---
             
             progress_bar.empty()
             status_text.empty()
-            
+                   
             if backtest_results:
                 st.session_state.backtest_done = True
                 st.session_state.backtest_results = backtest_results
