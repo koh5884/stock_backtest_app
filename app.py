@@ -130,11 +130,6 @@ def run_screening_page():
             'Slope_MA20': '{:.2f}%'
         })
         
-        st.dataframe(styled_df, use_container_width=True, height=400)
-
-
-# app.py の run_screening_page() 関数内
-# st.dataframe(styled_df, use_container_width=True, height=400) の直後に以下を追加
 
         st.dataframe(styled_df, use_container_width=True, height=400)
         
@@ -181,10 +176,6 @@ def run_screening_page():
                             st.error(f"⚠️ チャート表示エラー: {str(e)}")
         else:
             st.info("💡 All Signal銘柄がありません")
-
-        # === 以下、既存の「銘柄選択」セクションが続く ===
-        st.header("📌 バックテスト")
-        st.header("📌 バックテスト")
 
         # 銘柄選択
         st.header("📌 バックテスト")
