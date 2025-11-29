@@ -133,18 +133,19 @@ def run_screening_page():
         st.dataframe(styled_df, use_container_width=True, height=400)
 
 
+# app.py の run_screening_page() 関数内
+# st.dataframe(styled_df, use_container_width=True, height=400) の直後に以下を追加
+
+        st.dataframe(styled_df, use_container_width=True, height=400)
+        
         # === All Signal銘柄のチャート表示 ===
         all_signal_tickers = df[df["All_Signal"] == True]
         
         if len(all_signal_tickers) > 0:
             st.header("🌟 All Signal銘柄のチャート")
-            st.caption(f"全条件クリア銘柄: {len(all_signal_tickers)}銘柄のチャートを表示します")
+            st.caption(f"全条件クリア銘柄: {len(all_signal_tickers)}銘柄")
             
-            # 表示件数の制限（オプション）
-            max_charts = st.slider("表示する銘柄数", 1, min(10, len(all_signal_tickers)), 
-                                   min(5, len(all_signal_tickers)), key="chart_slider")
-            
-            for idx, row in all_signal_tickers.head(max_charts).iterrows():
+            for idx, row in all_signal_tickers.iterrows():
                 ticker = row['Code']
                 name = row['Name']
                 
@@ -166,7 +167,8 @@ def run_screening_page():
                                 # 追加情報
                                 col1, col2, col3 = st.columns(3)
                                 with col1:
-                                    st.metric("最新価格", f"{daily_data['Close'].iloc[-1]:.2f}")
+                                    currency_sym = '¥' if is_japanese else '$'
+                                    st.metric("最新価格", f"{currency_sym}{daily_data['Close'].iloc[-1]:,.2f}")
                                 with col2:
                                     latest_change = ((daily_data['Close'].iloc[-1] / daily_data['Close'].iloc[-2]) - 1) * 100
                                     st.metric("前日比", f"{latest_change:+.2f}%")
@@ -180,6 +182,8 @@ def run_screening_page():
         else:
             st.info("💡 All Signal銘柄がありません")
 
+        # === 以下、既存の「銘柄選択」セクションが続く ===
+        st.header("📌 バックテスト")
         st.header("📌 バックテスト")
 
         # 銘柄選択
