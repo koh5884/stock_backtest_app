@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt # グラフ表示に必要
+from datetime import timedelta # 期間計算に必要
 
 # 既存ファイルのインポート
 from ticker_list import sp500_list, nikkei225_list
-from screening import MA_SHORT, MA_MID, MA_LONG, SLOPE_THRESHOLD
+from screening import MA_SHORT, MA_MID, MA_LONG, SLOPE_THRESHOLD, SLOPE_PERIOD
 from screening import get_data_and_screen_advanced
+# バックテストクラスのインポート
 from backtest import SwingTradeBacktest, TradingRules 
 
 
-st.set_page_config(page_title="株式アプリ", page_icon="📈", layout="wide")
+st.set_page_config(page_title="よこへトレード支援アプリ", page_icon="📈", layout="wide")
 
 
 # =======================================================
@@ -23,31 +25,35 @@ if 'backtest_done' not in st.session_state:
     st.session_state.backtest_done = False
 if 'backtest_results' not in st.session_state:
     st.session_state.backtest_results = None
+if 'currency' not in st.session_state:
+    st.session_state.currency = None
 if 'currency_symbol' not in st.session_state:
     st.session_state.currency_symbol = None
-if 'single_ticker_result' not in st.session_state:
-    st.session_state.single_ticker_result = None
+if 'screening_period' not in st.session_state:
+    st.session_state.screening_period = None
 if 'backtest_period' not in st.session_state:
     st.session_state.backtest_period = None
 
+# 単一銘柄バックテスト用の初期化
+if 'single_ticker_result' not in st.session_state:
+    st.session_state.single_ticker_result = None
+
 
 # =======================================================
-# ⚙️ 関数定義: スクリーニング＆一括バックテストページ
+# ⚙️ 関数定義: スクリーニング→バックテストページ
 # =======================================================
 def run_screening_page():
-    st.title("📈 株式スクリーニング＆一括バックテスト")
-    st.markdown("移動平均線を使った**順張り押し目買い戦略**のスクリーニングツールです。")
+    st.title("📈 スクリーニング→バックテスト")
+    st.markdown("**順張り押し目買い戦略**のスクリーニングツールです。スクリーニング対象を選択し、下のボタンからスクリーニングを開始してください。")
 
     # --- サイドバー ---
     st.sidebar.header("スクリーニング対象")
-    
-    # ラジオボタンで市場を選択
     market_selection = st.sidebar.radio(
         "市場を選択",
-        ("S&P 500（米国株）", "日経225（日本株）", "選択なし"),
-        index=0
+        ("S&P 500（米国株）", "日経225（日本株）"),
+        index=0 # デフォルトはS&P 500
     )
-    
+
     # 銘柄リストの決定
     stock_list = []
     if market_selection == "S&P 500（米国株）":
@@ -55,31 +61,34 @@ def run_screening_page():
     elif market_selection == "日経225（日本株）":
         stock_list = nikkei225_list
 
-    # --- スクリーニング実行 ---
+    # --- スクリーニング ---
+    st.header("🔍 スクリーニング実行")
 
     if not stock_list:
         st.warning("⚠️ スクリーニング対象を選択してください（サイドバー）")
     else:
         if st.button("スクリーニング開始！", key="screening_button"):
+            # データ期間を計算
             screening_end_date = pd.Timestamp.now().strftime('%Y-%m-%d')
             screening_start_date = (pd.Timestamp.now() - pd.Timedelta(days=180)).strftime('%Y-%m-%d')
             
             with st.spinner(f"分析中...（対象: {len(stock_list)}銘柄）"):
                 df = get_data_and_screen_advanced(stock_list)
                 
-                is_japanese = market_selection == "日経225（日本株）"
+                # 通貨判定（.Tが含まれていれば日本株）
+                is_japanese = any('.T' in item['code'] for item in stock_list if isinstance(item, dict))
                 currency = '円' if is_japanese else 'ドル'
                 currency_symbol = 'JPY' if is_japanese else 'USD'
-                screening_period = f"{screening_start_date} ～ {screening_end_date}"
                 
                 if df.empty:
                     st.session_state.screening_done = False
                     st.session_state.screening_df = None
-                    st.session_state.currency_symbol = None
+                    st.session_state.currency = None
+                    st.session_state.screening_period = None
                     st.warning("❌ 条件に該当する銘柄がありませんでした")
                     st.info(f"""
                     **スクリーニング条件:**
-                    - 分析期間: {screening_period}（過去6ヶ月のデータを使用）
+                    - 分析期間: {screening_start_date} ～ {screening_end_date}（過去6ヶ月のデータを使用）
                     - MA{MA_SHORT} < MA{MA_MID} < MA{MA_LONG}（押し目形成）
                     - MA{MA_MID}の傾き ≥ {SLOPE_THRESHOLD}%（強いトレンド）
                     - 直近価格 > MA{MA_SHORT}（反転シグナル）
@@ -88,31 +97,34 @@ def run_screening_page():
                     st.session_state.screening_done = True
                     st.session_state.screening_df = df
                     st.session_state.backtest_done = False
+                    st.session_state.currency = currency
                     st.session_state.currency_symbol = currency_symbol
-                    st.session_state.currency = currency # ここで 'currency' も設定しておく
+                    st.session_state.screening_period = f"{screening_start_date} ～ {screening_end_date}"
 
-    # --- スクリーニング結果の表示 ---
+    # スクリーニング結果の表示
     if st.session_state.screening_done and st.session_state.screening_df is not None:
         df = st.session_state.screening_df
+        currency = st.session_state.currency
         currency_symbol = st.session_state.currency_symbol
-        currency = st.session_state.currency 
-        screening_start_date = (pd.Timestamp.now() - pd.Timedelta(days=180)).strftime('%Y-%m-%d')
-        screening_end_date = pd.Timestamp.now().strftime('%Y-%m-%d')
-        screening_period = f"{screening_start_date} ～ {screening_end_date}"
+        screening_period = st.session_state.screening_period
         
         st.success(f"✅ {len(df)} 銘柄がヒット！")
 
+        # 表示
         st.subheader("📊 スクリーニング結果")
         st.caption(f"""
         **分析期間**: {screening_period}（過去6ヶ月のデータを使用）  
         **Slope_MA20**: MA20の5日間変化率（%）  
+        **C1～C4**: 各条件の充足状況  
         **All_Signal**: 全条件クリア（買いシグナル）
         """)
         
+        # 表示用にTrue/Falseを記号に変換
         display_df = df.copy()
         for col in ['C1_Trend', 'C2_Long', 'C3_Pullback', 'C4_Trigger', 'All_Signal']:
             display_df[col] = display_df[col].map({True: '✓', False: '✗'})
         
+        # スタイルを適用して表示
         styled_df = display_df.style.apply(
             lambda row: ['background-color: #90EE90; font-weight: bold'] * len(row) 
             if row['All_Signal'] == '✓' else [''] * len(row), 
@@ -123,9 +135,10 @@ def run_screening_page():
         
         st.dataframe(styled_df, use_container_width=True, height=400)
 
-        # --- バックテスト設定 ---
+        # 銘柄選択
         st.header("📌 バックテスト")
         
+        # デフォルトで全条件クリア銘柄を選択
         default_tickers = df[df["All_Signal"] == True]["Code"].tolist()[:5]
         
         selected = st.multiselect(
@@ -139,6 +152,7 @@ def run_screening_page():
             selected_info = df[df["Code"].isin(selected)][["Code", "Name", "Slope_MA20", "All_Signal"]]
             st.dataframe(selected_info, use_container_width=True)
             
+            # バックテスト設定
             col1, col2 = st.columns(2)
             with col1:
                 backtest_period = st.selectbox(
@@ -148,9 +162,10 @@ def run_screening_page():
                     key="period_select"
                 )
             with col2:
-                show_details = st.checkbox("詳細情報を表示", value=False, key="detail_checkbox")
+                show_details = st.checkbox("詳細情報を表示", value=True, key="detail_checkbox")
             
             if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
+                # 期間設定
                 period_map = {"1年": 365, "2年": 730, "3年": 1095, "5年": 1825}
                 days = period_map[backtest_period]
                 end_date = pd.Timestamp.now().strftime('%Y-%m-%d')
@@ -169,11 +184,13 @@ def run_screening_page():
                     try:
                         rules = TradingRules()
                         bt = SwingTradeBacktest(ticker, start_date, end_date, rules)
-                        perf = bt.run() # run() から引数を削除
+                        perf = bt.run(show_charts=False, show_detailed=False)
                         
                         if perf:
+                            # 銘柄名を取得
                             name = df[df['Code']==ticker]['Name'].values[0]
 
+                            # 結果リストへの追加
                             backtest_results.append({
                                 'Code': ticker,
                                 'Name': name,
@@ -187,22 +204,24 @@ def run_screening_page():
                                 'Avg Holding Days': perf['avg_holding_days']
                             })
                             
-                            # 詳細チャートの表示（show_detailsがTrueの場合のみ）
+                            # === グラフ表示部分の追加（銘柄名を使用） ===
                             if show_details:
-                                with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る", expanded=False):
+                                with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る"):
+                                    # 1. 全体オーバービュー
                                     st.subheader("全体推移")
                                     fig_overview = bt.plot_overview()
                                     if fig_overview:
                                         st.pyplot(fig_overview)
-                                        plt.close(fig_overview)
+                                        plt.close(fig_overview) # メモリ解放
                                     
+                                    # 2. 個別トレード（すべて表示）
                                     st.subheader("個別トレード詳細")
                                     if perf['total_trades'] > 0:
                                         trade_figs = bt.plot_all_trades()
                                         for i, fig in enumerate(trade_figs):
                                             st.caption(f"Trade #{i+1}")
                                             st.pyplot(fig)
-                                            plt.close(fig)
+                                            plt.close(fig) # メモリ解放
                                     else:
                                         st.info("トレードはありませんでした。")
 
@@ -221,7 +240,7 @@ def run_screening_page():
                     st.session_state.backtest_results = None
                     st.error("❌ バックテストに成功した銘柄がありませんでした")
             
-            # --- バックテスト結果の表示 ---
+            # バックテスト結果の表示（ここは if selected の中、かつ if button の外）
             if st.session_state.backtest_done and st.session_state.backtest_results:
                 results_df = pd.DataFrame(st.session_state.backtest_results)
                 backtest_period_display = st.session_state.backtest_period
@@ -274,46 +293,27 @@ def run_screening_page():
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    avg_win_rate = results_df['Win Rate (%)'].mean()
-                    st.metric("平均勝率", f"{avg_win_rate:.1f}%")
+                    st.metric("平均勝率", f"{results_df['Win Rate (%)'].mean():.1f}%")
                 with col2:
-                    total_pnl = results_df['Total P&L'].sum()
-                    st.metric("合計損益", f"{curr_prefix}{total_pnl:,.0f}")
+                    st.metric("合計損益", f"{curr_prefix}{results_df['Total P&L'].sum():,.0f}")
                 with col3:
-                    avg_pf = results_df['Profit Factor'].mean()
-                    st.metric("平均PF", f"{avg_pf:.2f}")
+                    st.metric("平均PF", f"{results_df['Profit Factor'].mean():.2f}")
                 with col4:
                     profitable = len(results_df[results_df['Total P&L'] > 0])
                     st.metric("黒字銘柄", f"{profitable}/{len(results_df)}")
-                
-                # 詳細情報（show_detailsがTrueの場合のみ表示）
-                if show_details:
-                    st.subheader("📋 詳細分析")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("**勝率トップ3**")
-                        top_wr = results_df.nlargest(3, 'Win Rate (%)')[['Code', 'Name', 'Win Rate (%)']]
-                        st.dataframe(top_wr, use_container_width=True, hide_index=True)
-                    
-                    with col2:
-                        st.write("**PFトップ3**")
-                        top_pf = results_df.nlargest(3, 'Profit Factor')[['Code', 'Name', 'Profit Factor']]
-                        st.dataframe(top_pf, use_container_width=True, hide_index=True)
 
 
 # =======================================================
 # 🎯 関数定義: 単一銘柄バックテストページ
 # =======================================================
 def run_single_backtest_page():
-    st.title("🎯 単一銘柄バックテスト")
-    st.markdown("銘柄コードと期間を入力し、指定した戦略でバックテストを実行します。")
+    st.title("🎯 バックテスト")
+    st.markdown("銘柄コードと期間を入力し、バックテストを実行します。")
     
     # 1. 入力フォーム
     col1, col2 = st.columns([1, 1])
     with col1:
-        ticker_input = st.text_input("銘柄コードを入力 (例: 6920.T, AAPL)", key="single_ticker_input").strip().upper()
+        ticker_input = st.text_input("銘柄コードを入力 (例: 日本株なら「6920.T」, 米株なら「AAPL」)", key="single_ticker_input").strip().upper()
     with col2:
         backtest_period = st.selectbox(
             "バックテスト期間",
@@ -339,16 +339,21 @@ def run_single_backtest_page():
         
         with st.spinner(f"バックテスト実行中: {ticker_input}..."):
             try:
+                # backtest.py のクラスを直接使用
                 rules = TradingRules()
                 bt = SwingTradeBacktest(ticker_input, start_date, end_date, rules)
                 perf = bt.run() 
                 
                 if perf:
+                    # 通貨判定とシンボル設定
                     is_japanese = '.T' in ticker_input
                     currency = '円' if is_japanese else 'ドル'
                     curr_prefix = '¥' if is_japanese else '$'
+                    
+                    # 銘柄名が不明なため、コードをそのまま名前にする
                     name = ticker_input
                     
+                    # 結果をDataFrameとしてセッションに保存
                     result_df = pd.DataFrame([{
                         'Code': ticker_input,
                         'Name': name,
@@ -364,7 +369,7 @@ def run_single_backtest_page():
                     
                     st.session_state.single_ticker_result = {
                         'df': result_df,
-                        'bt_object': bt,
+                        'bt_object': bt, # グラフ描画用にbtオブジェクトを保存
                         'curr_prefix': curr_prefix,
                         'currency': currency
                     }
@@ -376,7 +381,7 @@ def run_single_backtest_page():
             except Exception as e:
                 st.error(f"⚠️ バックテスト中にエラーが発生しました: {str(e)}")
     
-    # 2. 結果の表示
+    # 2. 結果の表示 (session_stateに結果があれば表示)
     if 'single_ticker_result' in st.session_state and st.session_state.single_ticker_result:
         result = st.session_state.single_ticker_result
         results_df = result['df']
@@ -386,7 +391,7 @@ def run_single_backtest_page():
         curr_prefix = result['curr_prefix']
         currency = result['currency']
 
-        # スタイリング関数
+        # スタイリング関数 (一括テストと共通)
         def color_performance(val, column):
             if column == 'Win Rate (%)':
                 if val >= 60: return 'background-color: #90EE90'
@@ -414,20 +419,24 @@ def run_single_backtest_page():
             'Avg Holding Days': '{:.1f}'
         })
 
+        # パフォーマンス表
         st.subheader("📊 パフォーマンス結果")
         st.info(f"**通貨単位**: {currency}")
         st.dataframe(styled_results, use_container_width=True, hide_index=True)
         st.markdown("---")
         
+        # グラフ表示
         st.subheader("詳細チャート")
         
         with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る", expanded=True):
+            # 1. 全体オーバービュー
             st.subheader("全体推移")
             fig_overview = bt.plot_overview()
             if fig_overview:
                 st.pyplot(fig_overview)
                 plt.close(fig_overview)
             
+            # 2. 個別トレード（すべて表示）
             st.subheader("個別トレード詳細")
             if bt.trades_df is not None and len(bt.trades_df) > 0:
                 trade_figs = bt.plot_all_trades()
@@ -445,11 +454,11 @@ def run_single_backtest_page():
 
 # ナビゲーションの配置
 st.sidebar.title("メニュー")
-page_selection = st.sidebar.radio("機能を選択", ["1. 株式スクリーニング＆一括バックテスト", "2. 単一銘柄バックテスト"], index=0)
+page_selection = st.sidebar.radio("機能を選択", ["1. 株式スクリーニング＆バックテスト", "2. バックテストのみ"])
 
 # 選択された機能の実行
-if page_selection == "1. 株式スクリーニング＆一括バックテスト":
+if page_selection == "1. 株式スクリーニング＆バックテスト":
     run_screening_page()
     
-elif page_selection == "2. 単一銘柄バックテスト":
+elif page_selection == "2. バックテストのみ":
     run_single_backtest_page()
