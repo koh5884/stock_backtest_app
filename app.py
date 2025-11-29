@@ -146,7 +146,7 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
         with col2:
             show_details = st.checkbox("詳細情報を表示", value=True, key="detail_checkbox")
         
-if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
+    if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
             # 期間設定
             period_map = {"1年": 365, "2年": 730, "3年": 1095, "5年": 1825}
             days = period_map[backtest_period]
