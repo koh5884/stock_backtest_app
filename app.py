@@ -146,7 +146,8 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
         with col2:
             show_details = st.checkbox("詳細情報を表示", value=True, key="detail_checkbox")
         
-    if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
+        # --- ここからインデント修正済み ---
+        if st.button("🚀 バックテスト開始", type="primary", key="backtest_button"):
             # 期間設定
             period_map = {"1年": 365, "2年": 730, "3年": 1095, "5年": 1825}
             days = period_map[backtest_period]
@@ -159,7 +160,6 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # --- ここからループ処理の修正 ---
             for idx, ticker in enumerate(selected):
                 status_text.text(f"バックテスト実行中... {ticker} ({idx+1}/{len(selected)})")
                 progress_bar.progress((idx + 1) / len(selected))
@@ -172,7 +172,6 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                     perf = bt.run(show_charts=False, show_detailed=False)
                     
                     if perf:
-                        # 結果リストへの追加
                         backtest_results.append({
                             'Code': ticker,
                             'Name': df[df['Code']==ticker]['Name'].values[0],
@@ -186,36 +185,32 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                             'Avg Holding Days': perf['avg_holding_days']
                         })
                         
-                        # === グラフ表示部分の追加 ===
-                        # Expanderを使って銘柄ごとに詳細を格納
+                        # === グラフ表示部分 ===
                         with st.expander(f"📈 {ticker} の詳細チャート・トレード履歴を見る"):
-                            
-                            # 1. 全体オーバービュー
                             st.subheader("全体推移")
                             fig_overview = bt.plot_overview()
                             if fig_overview:
                                 st.pyplot(fig_overview)
-                                plt.close(fig_overview) # メモリ解放
+                                import matplotlib.pyplot as plt
+                                plt.close(fig_overview)
                             
-                            # 2. 個別トレード（すべて表示）
                             st.subheader("個別トレード詳細")
                             if perf['total_trades'] > 0:
                                 trade_figs = bt.plot_all_trades()
                                 for i, fig in enumerate(trade_figs):
                                     st.caption(f"Trade #{i+1}")
                                     st.pyplot(fig)
-                                    plt.close(fig) # メモリ解放
+                                    plt.close(fig)
                             else:
                                 st.info("トレードはありませんでした。")
 
                 except Exception as e:
                     st.warning(f"⚠️ {ticker}: {str(e)}")
                     continue
-            # --- ループ処理ここまで ---
             
             progress_bar.empty()
             status_text.empty()
-                   
+            
             if backtest_results:
                 st.session_state.backtest_done = True
                 st.session_state.backtest_results = backtest_results
@@ -224,7 +219,7 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                 st.session_state.backtest_results = None
                 st.error("❌ バックテストに成功した銘柄がありませんでした")
         
-        # バックテスト結果の表示
+        # バックテスト結果の表示（ここは if selected の中、かつ if button の外）
         if st.session_state.backtest_done and st.session_state.backtest_results:
             results_df = pd.DataFrame(st.session_state.backtest_results)
             backtest_period_display = st.session_state.backtest_period
@@ -238,35 +233,24 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
             
             # スタイリング関数
             def color_performance(val, column):
-                """パフォーマンスに応じて色付け"""
                 if column == 'Win Rate (%)':
-                    if val >= 60:
-                        return 'background-color: #90EE90'
-                    elif val >= 50:
-                        return 'background-color: #FFFFE0'
-                    else:
-                        return 'background-color: #FFB6C1'
+                    if val >= 60: return 'background-color: #90EE90'
+                    elif val >= 50: return 'background-color: #FFFFE0'
+                    else: return 'background-color: #FFB6C1'
                 elif column == 'Profit Factor':
-                    if val >= 2.0:
-                        return 'background-color: #90EE90'
-                    elif val >= 1.5:
-                        return 'background-color: #FFFFE0'
-                    else:
-                        return 'background-color: #FFB6C1'
+                    if val >= 2.0: return 'background-color: #90EE90'
+                    elif val >= 1.5: return 'background-color: #FFFFE0'
+                    else: return 'background-color: #FFB6C1'
                 elif column == 'Total P&L':
-                    if val > 0:
-                        return 'color: green; font-weight: bold'
-                    elif val < 0:
-                        return 'color: red; font-weight: bold'
+                    if val > 0: return 'color: green; font-weight: bold'
+                    elif val < 0: return 'color: red; font-weight: bold'
                 return ''
             
-            # 通貨記号の決定
             if currency_symbol == 'JPY':
                 curr_prefix = '¥'
             else:
                 curr_prefix = '$'
             
-            # スタイル適用
             styled_results = results_df.style.apply(
                 lambda x: [color_performance(v, c) for v, c in zip(x, results_df.columns)],
                 axis=1
@@ -283,37 +267,27 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
             st.subheader("📊 バックテスト結果")
             st.dataframe(styled_results, use_container_width=True)
             
-            # サマリー統計
             st.subheader("📈 総合サマリー")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                avg_win_rate = results_df['Win Rate (%)'].mean()
-                st.metric("平均勝率", f"{avg_win_rate:.1f}%")
+                st.metric("平均勝率", f"{results_df['Win Rate (%)'].mean():.1f}%")
             with col2:
-                total_pnl = results_df['Total P&L'].sum()
-                st.metric("合計損益", f"{curr_prefix}{total_pnl:,.0f}")
+                st.metric("合計損益", f"{curr_prefix}{results_df['Total P&L'].sum():,.0f}")
             with col3:
-                avg_pf = results_df['Profit Factor'].mean()
-                st.metric("平均PF", f"{avg_pf:.2f}")
+                st.metric("平均PF", f"{results_df['Profit Factor'].mean():.2f}")
             with col4:
                 profitable = len(results_df[results_df['Total P&L'] > 0])
                 st.metric("黒字銘柄", f"{profitable}/{len(results_df)}")
             
-            # 詳細情報
             if show_details:
                 st.subheader("📋 詳細分析")
-                
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     st.write("**勝率トップ3**")
-                    top_wr = results_df.nlargest(3, 'Win Rate (%)')[['Code', 'Name', 'Win Rate (%)']]
-                    st.dataframe(top_wr, use_container_width=True, hide_index=True)
-                
+                    st.dataframe(results_df.nlargest(3, 'Win Rate (%)')[['Code', 'Name', 'Win Rate (%)']], use_container_width=True, hide_index=True)
                 with col2:
                     st.write("**利益トップ3**")
-                    top_profit = results_df.nlargest(3, 'Total P&L')[['Code', 'Name', 'Total P&L']]
-                    st.dataframe(top_profit, use_container_width=True, hide_index=True)
+                    st.dataframe(results_df.nlargest(3, 'Total P&L')[['Code', 'Name', 'Total P&L']], use_container_width=True, hide_index=True)
     else:
         st.info("💡 銘柄を選択してバックテストを実行できます")
