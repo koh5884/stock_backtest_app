@@ -13,16 +13,11 @@ SLOPE_THRESHOLD = 1.2 # 傾き閾値 (%)
 SLOPE_PERIOD = 5      # 傾き計算期間 (日)
 
 def get_data_and_screen_advanced(stock_list):
-    """
-    ▼ stock_list は以下形式の配列
-    [
-        {"code": "AAPL", "name": "Apple"},
-        {"code": "MSFT", "name": "Microsoft"},
-        ...
-    ]
-    """
-
-    tickers = [item["code"] for item in stock_list]
+    # stock_list が list[str] の場合にも対応する
+    if isinstance(stock_list[0], str):
+        tickers = stock_list
+    else:
+        tickers = [item["code"] for item in stock_list]
     ticker_map = {item["code"]: item["name"] for item in stock_list}
 
     print(f"データを取得中... (対象: {len(tickers)}銘柄)")
