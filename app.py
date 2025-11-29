@@ -56,10 +56,10 @@ def run_screening_page():
 
     # 銘柄リストの決定
     stock_list = []
-    if use_sp500:
-        stock_list += sp500_list
-    if use_nikkei:
-        stock_list += nikkei225_list
+    if market_selection == "S&P 500（米国株）":
+        stock_list = sp500_list
+    elif market_selection == "日経225（日本株）":
+        stock_list = nikkei225_list
 
     # --- スクリーニング ---
     st.header("🔍 スクリーニング実行")
