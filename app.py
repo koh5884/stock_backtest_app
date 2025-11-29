@@ -1,21 +1,73 @@
-# app.py
 import streamlit as st
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+from ticker_list import sp500_list
+from screening import MA_SHORT, MA_MID, MA_LONG, SLOPE_THRESHOLD, SLOPE_PERIOD
 from screening import get_data_and_screen_advanced
-from ticker_list import sp500_list, nikkei225_list
 
-st.title("📈 スクリーニング（MA7 / MA20 / MA60 + 傾き）")
+st.title("📈 株式スクリーニング＆ヒートマップ分析")
 
-market = st.sidebar.selectbox("対象市場", ["S&P500", "Nikkei225"])
-if market == "S&P500":
-    stock_list = sp500_list
-else:
-    stock_list = nikkei225_list
+# --- サイドバー ---
+st.sidebar.header("スクリーニング設定")
 
-if st.button("🔍 スクリーニング実行"):
-    df = get_data_and_screen_advanced(stock_list)
-    st.dataframe(df)
+use_sp500 = st.sidebar.checkbox("S&P 500（米国株）", value=True)
+use_nikkei = st.sidebar.checkbox("日経225（日本株）", value=False)
 
-    if not df.empty:
-        df_signal = df[df["All_Signal"] == True]
-        st.subheader("🚨 総合シグナル銘柄")
-        st.dataframe(df_signal)
+# 銘柄リストの決定
+tickers = []
+if use_sp500:
+    tickers += [item["code"] for item in sp500_list]
+
+# --- スクリーニング ---
+st.header("🔍 スクリーニング実行")
+
+if st.button("スクリーニング開始！"):
+    with st.spinner("分析中..."):
+        df = get_data_and_screen_advanced(tickers)
+
+    if df.empty:
+        st.warning("該当銘柄なし…")
+    else:
+        st.success(f"{len(df)} 銘柄ヒット！")
+
+        # 表示
+        st.dataframe(df, use_container_width=True)
+
+        # ================================
+        #  ヒートマップ表示
+        # ================================
+        st.header("🔥 ヒートマップ（条件の強さを可視化）")
+
+        heatmap_df = df.set_index("Code")[[
+            "Slope_MA20", "C1_Trend", "C2_Long", "C3_Pullback", "C4_Trigger"
+        ]]
+
+        # True/False を 1/0 に変換
+        hm_numeric = heatmap_df.replace({True: 1, False: 0})
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(
+            hm_numeric,
+            annot=heatmap_df["Slope_MA20"].round(2).astype(str),
+            fmt="",
+            cmap="coolwarm",
+            linewidths=.5,
+            ax=ax
+        )
+        st.pyplot(fig)
+
+        # ================================
+        #  銘柄選択 → 後でバックテストに使う
+        # ================================
+        st.header("📌 気になる銘柄を選択")
+
+        selected = st.multiselect(
+            "バックテストしたい銘柄を選んでください",
+            df["Code"].tolist()
+        )
+
+        if selected:
+            st.write("選択された銘柄：", selected)
+            st.info("次はバックテスト機能を実装します🔥")
