@@ -232,16 +232,16 @@ class SwingTradeBacktest:
         for idx, trade in self.trades_df.iterrows():
             start_date = trade['entry_date'] - pd.Timedelta(days=20)
             end_date = trade['exit_date'] + pd.Timedelta(days=10)
-            
+
             trade_data = self.daily_data[(self.daily_data.index >= start_date) & (self.daily_data.index <= end_date)].copy()
             if trade_data.empty:
                 continue
 
             fig, ax = plt.subplots(figsize=(10, 6))
-            
+
             # ローソク足描画ヘルパー呼び出し
             self._plot_candlestick(ax, trade_data)
-            
+
             # MA
             x_range = range(len(trade_data))
             ax.plot(x_range, trade_data['MA_short'].values, label='MA7', color='blue', alpha=0.5)
