@@ -73,7 +73,8 @@ class SwingTradeBacktest:
         
         self.data.dropna(inplace=True)
 
-def _run_strategy(self):
+
+    def _run_strategy(self):
         """トレード戦略のロジックを実行する"""
         if self.data is None or self.data.empty:
             return
@@ -143,6 +144,7 @@ def _run_strategy(self):
                     in_trade = False
         
         self.trades_df = pd.DataFrame(trades)
+
 
     def _calculate_performance(self):
         """パフォーマンス指標を計算する"""
