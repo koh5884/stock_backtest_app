@@ -8,8 +8,7 @@ from ticker_list import sp500_list, nikkei225_list
 from screening import MA_SHORT, MA_MID, MA_LONG, SLOPE_THRESHOLD, SLOPE_PERIOD
 from screening import get_data_and_screen_advanced
 # バックテストクラスのインポート
-from backtest import SwingTradeBacktest, TradingRules 
-
+from backtest import SwingTradeBacktest, TradingRules, plot_stock_chart_with_ma
 
 st.set_page_config(page_title="よこへトレード支援アプリ", page_icon="📈", layout="wide")
 
@@ -133,6 +132,48 @@ def run_screening_page():
         })
         
         st.dataframe(styled_df, use_container_width=True, height=400)
+
+
+    # --- 新規追加: シグナル点灯銘柄のチャート表示 ---
+    st.markdown("---") # 区切り線
+    
+    # 1. 'all signal' が True の銘柄を抽出
+    signal_df = st.session_state.screening_df[st.session_state.screening_df['all signal'] == True]
+    
+    if not signal_df.empty:
+        st.subheader("📈 シグナル点灯銘柄の最新チャート (根拠期間表示)")
+        
+        # 抽出した銘柄をループしてチャートを表示
+        for index, row in signal_df.iterrows():
+            ticker = row['Code']
+            name = row['Name']
+            
+            st.markdown(f"### {name} ({ticker})")
+            
+            # 2カラムで日足と週足を並べて表示
+            col_d, col_w = st.columns(2)
+            
+            # 日足チャート (1d)
+            with col_d:
+                st.markdown("**日足チャート**")
+                fig_daily = plot_stock_chart_with_ma(ticker, name, interval='1d')
+                if fig_daily:
+                    st.pyplot(fig_daily)
+                    plt.close(fig_daily)
+
+            # 週足チャート (1wk)
+            with col_w:
+                st.markdown("**週足チャート**")
+                fig_weekly = plot_stock_chart_with_ma(ticker, name, interval='1wk')
+                if fig_weekly:
+                    st.pyplot(fig_weekly)
+                    plt.close(fig_weekly)
+                    
+            st.markdown("---") # 銘柄ごとの区切り
+            
+    else:
+        st.info("条件を満たすシグナル点灯銘柄はありませんでした。")
+    # ----------------------------------------------------
 
         # 銘柄選択
         st.header("📌 バックテスト")

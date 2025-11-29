@@ -6,6 +6,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
 from datetime import datetime, timedelta
 import warnings
+from screening import MA_SHORT, MA_MID, MA_LONG
 
 # Streamlitでの描画用にバックエンド設定
 import matplotlib
@@ -281,16 +282,92 @@ class SwingTradeBacktest:
             
         return figs
 
-    def _plot_candlestick(self, ax, data):
-        """ローソク足描画ヘルパー"""
-        width = 0.6
-        for i, (idx, row) in enumerate(data.iterrows()):
-            open_p, close_p, high_p, low_p = row['Open'], row['Close'], row['High'], row['Low']
-            color = 'red' if close_p >= open_p else 'blue' # 日本式: 赤が陽線
-            
-            # ヒゲ
-            ax.plot([i, i], [low_p, high_p], color=color, linewidth=1)
-            # 実体
-            rect = Rectangle((i - width/2, min(open_p, close_p)), width, abs(close_p - open_p),
-                             facecolor=color, edgecolor=color)
-            ax.add_patch(rect)
+# =======================================================
+# 📈 シグナル根拠チャート描画用ヘルパー関数
+# =======================================================
+def plot_stock_chart_with_ma(ticker, name, interval='1d'):
+    """
+    指定された銘柄の最新のチャートを、MA付きで描画する。
+    日足は90日、週足は1年間のデータを取得。（シグナル根拠の最長MA=60をカバーするため）
+    """
+    
+    # 期間設定: 日足は3ヶ月(90日)、週足は1年間(60週≒約1年)
+    if interval == '1d':
+        period_str = '90d' 
+    elif interval == '1wk':
+        period_str = '1y' 
+    else:
+        return None
+
+    try:
+        # yfinanceでデータ取得
+        data = yf.download(ticker, interval=interval, period=period_str, progress=False)
+        if data.empty:
+            return None
+    except Exception as e:
+        print(f"チャートデータ取得エラー ({ticker}, {interval}): {e}")
+        return None
+
+    # MAの計算 (screening.pyの定数を使用)
+    data['MA_Short'] = data['Close'].rolling(window=MA_SHORT).mean()
+    data['MA_Mid'] = data['Close'].rolling(window=MA_MID).mean()
+    data['MA_Long'] = data['Close'].rolling(window=MA_LONG).mean()
+    
+    # 描画設定
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # --- ローソク足の描画 ---
+    width = 0.6 
+    data_for_plot = data.reset_index()
+    # MatplotlibのX軸用に数値インデックスを使用
+    data_for_plot['Date_Num'] = data_for_plot.index 
+    
+    for i in range(len(data_for_plot)):
+        row = data_for_plot.iloc[i]
+        date_num = row['Date_Num']
+        o, c, h, l = row['Open'], row['Close'], row['High'], row['Low']
+        
+        # 色設定
+        color = 'red' if c >= o else 'blue'
+        
+        # 胴体 (body)
+        height = abs(c - o)
+        bottom = min(o, c)
+        rect = Rectangle((date_num - width/2, bottom), width, height, facecolor=color, edgecolor='black', linewidth=0.5)
+        ax.add_patch(rect)
+        
+        # ひげ (wick)
+        ax.plot([date_num, date_num], [l, min(o, c)], color='black', linewidth=1) # 下ひげ
+        ax.plot([date_num, date_num], [max(o, c), h], color='black', linewidth=1) # 上ひげ
+        
+    # MAのプロット
+    ax.plot(data_for_plot['Date_Num'], data_for_plot['MA_Short'], label=f'MA{MA_SHORT}', color='orange', linewidth=1.5)
+    ax.plot(data_for_plot['Date_Num'], data_for_plot['MA_Mid'], label=f'MA{MA_MID}', color='purple', linewidth=1.5)
+    ax.plot(data_for_plot['Date_Num'], data_for_plot['MA_Long'], label=f'MA{MA_LONG}', color='green', linewidth=1.5)
+
+    # タイトルと凡例
+    ax.set_title(f'[{interval}] {name} ({ticker}) Chart with MAs', fontsize=14, fontweight='bold')
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    # X軸を日付ラベルで設定
+    import matplotlib.dates as mdates
+    tick_idxs = np.linspace(0, len(data_for_plot)-1, min(10, len(data_for_plot)), dtype=int)
+    ax.set_xticks(tick_idxs)
+    
+    if interval == '1d':
+        date_format = '%Y-%m-%d'
+    elif interval == '1wk':
+        date_format = '%Y-%m'
+
+    ax.set_xticklabels([data_for_plot['Date'].iloc[i].strftime(date_format) for i in tick_idxs], rotation=45, ha='right')
+    
+    # Y軸のスケール調整
+    if not data.empty:
+        min_y = data['Low'].min()
+        max_y = data['High'].max()
+        ax.set_ylim(min_y * 0.98, max_y * 1.02)
+    
+    plt.tight_layout()
+    
+    return fig
