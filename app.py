@@ -1,40 +1,21 @@
+# app.py
 import streamlit as st
-from backtest import TradingRules, SwingTradeBacktest
+from screening import get_data_and_screen_advanced
+from ticker_list import sp500_list, nikkei225_list
 
-st.title("📈 Swing Trade Backtest App")
+st.title("📈 スクリーニング（MA7 / MA20 / MA60 + 傾き）")
 
-# --- 入力フォーム ---
-st.sidebar.header("Backtest Parameters")
+market = st.sidebar.selectbox("対象市場", ["S&P500", "Nikkei225"])
+if market == "S&P500":
+    stock_list = sp500_list
+else:
+    stock_list = nikkei225_list
 
-ticker = st.sidebar.text_input("Ticker", value="9984.T")
-start_date = st.sidebar.date_input("Start Date", value=None)
-end_date = st.sidebar.date_input("End Date", value=None)
+if st.button("🔍 スクリーニング実行"):
+    df = get_data_and_screen_advanced(stock_list)
+    st.dataframe(df)
 
-run_button = st.sidebar.button("🚀 Run Backtest")
-
-# === バックテスト実行 ===
-if run_button:
-
-    if start_date is None or end_date is None:
-        st.error("日付を入力してください")
-        st.stop()
-
-    st.write(f"### バックテスト実行中… ({ticker})")
-    rule = TradingRules()
-    bt = SwingTradeBacktest(
-        ticker,
-        start_date.strftime("%Y-%m-%d"),
-        end_date.strftime("%Y-%m-%d"),
-        rule
-    )
-
-    bt.run(show_charts=False, show_detailed=False)
-
-    # 結果表示
-    st.subheader("📊 Performance Summary")
-    st.json(bt.performance)
-
-    # グラフ表示（matplotlib → streamlit）
-    st.subheader("📈 Charts")
-    bt.plot_results()
-    st.pyplot()
+    if not df.empty:
+        df_signal = df[df["All_Signal"] == True]
+        st.subheader("🚨 総合シグナル銘柄")
+        st.dataframe(df_signal)
