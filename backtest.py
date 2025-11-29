@@ -73,8 +73,7 @@ class SwingTradeBacktest:
         
         self.data.dropna(inplace=True)
 
-
-    def _run_strategy(self):
+def _run_strategy(self):
         """トレード戦略のロジックを実行する"""
         if self.data is None or self.data.empty:
             return
@@ -124,7 +123,8 @@ class SwingTradeBacktest:
                     exit_date = data.index[i] if exit_signal else data.index[-1]
                     final_exit_price = exit_price if exit_signal else row['Close']
                     
-                    if exit_date > entry_date:
+                    # 修正: エントリー日 >= エグジット日のトレードも記録する
+                    if exit_date >= entry_date:
                         profit = final_exit_price - entry_price
                         profit_pct = (final_exit_price / entry_price - 1) * 100
                         holding_days = (exit_date - entry_date).days
@@ -143,7 +143,6 @@ class SwingTradeBacktest:
                     in_trade = False
         
         self.trades_df = pd.DataFrame(trades)
-
 
     def _calculate_performance(self):
         """パフォーマンス指標を計算する"""
