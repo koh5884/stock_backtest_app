@@ -43,6 +43,7 @@ if 'single_ticker_result' not in st.session_state:
 # ⚙️ 関数定義: スクリーニング→バックテストページ
 # =======================================================
 def run_screening_page():
+    st.title("📈 スクリーニング→バックテスト")
     st.markdown("**順張り押し目買い戦略**のスクリーニングツールです。スクリーニング対象を選択し、下のボタンからスクリーニングを開始してください。")
 
     # --- サイドバー ---
@@ -61,7 +62,6 @@ def run_screening_page():
         stock_list = nikkei225_list
 
     # --- スクリーニング ---
-    st.header("🔍 スクリーニング実行")
 
     if not stock_list:
         st.warning("⚠️ スクリーニング対象を選択してください（サイドバー）")
