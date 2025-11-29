@@ -186,8 +186,8 @@ if st.session_state.screening_done and st.session_state.screening_df is not None
                         })
                         
                         # === グラフ表示部分 ===
-                        with st.expander(f"📈 {ticker} の詳細チャート・トレード履歴を見る"):
-                            st.subheader("全体推移")
+
+                    with st.expander(f"📈 {name} ({ticker}) の詳細チャート・トレード履歴を見る"):                                                                                                                                                                       			st.subheader("全体推移")
                             fig_overview = bt.plot_overview()
                             if fig_overview:
                                 st.pyplot(fig_overview)

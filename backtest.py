@@ -243,8 +243,13 @@ class SwingTradeBacktest:
                 exit_idx = trade_data.index.get_loc(trade['exit_date'])
                 
                 ax.scatter(entry_idx, trade['entry_price'], marker='^', color='green', s=150, zorder=10, label='Entry')
+
                 exit_color = 'red' if trade['profit'] < 0 else 'blue'
-                ax.scatter(exit_idx, trade['exit_price'], marker='v' if trade['profit']<0 else 'o', color=exit_color, s=150, zorder=10, label='Exit')
+                ax.scatter(exit_idx, trade['exit_price'],
+                           marker='v' if trade['profit']<0 else 'o',
+                           color=exit_color, 
+                           s=150, zorder=10, 
+                           label='Exit') # ← ここに黒枠線を追加する
             except KeyError:
                 pass # 日付インデックスが見つからない場合の安全策
 
