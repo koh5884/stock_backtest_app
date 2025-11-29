@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from matplotlib.lines import Line2D
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 # Streamlitでの描画用にバックエンド設定
 import matplotlib
@@ -46,6 +45,7 @@ class SwingTradeBacktest:
         """データを取得し、MAとシグナルを計算する"""
         try:
             # データ取得
+            # ... (省略: yfinanceのデータ取得ロジックは変更なし)
             self.data = yf.download(
                 self.ticker, 
                 start=self.start_date, 
@@ -70,6 +70,7 @@ class SwingTradeBacktest:
 
 
     def _run_strategy(self):
+        # ... (省略: 戦略ロジックは変更なし)
         """トレード戦略のロジックを実行する"""
         if self.data is None or self.data.empty:
             return
@@ -105,7 +106,6 @@ class SwingTradeBacktest:
                 exit_price = 0
                 
                 # 損切りライン (直近N日間の安値 * 損切り率)
-                # 損切り率が100%の場合は直近安値、98%の場合は直近安値の2%下
                 lookback_low = data['Low'].iloc[max(0, i - self.rules.stop_loss_lookback):i].min()
                 stop_loss_level = lookback_low * self.rules.stop_loss_percentage
                 
@@ -140,8 +140,8 @@ class SwingTradeBacktest:
         
         self.trades_df = pd.DataFrame(trades)
 
-
     def _calculate_performance(self):
+        # ... (省略: パフォーマンス計算ロジックは変更なし)
         """パフォーマンス指標を計算する"""
         if self.trades_df.empty:
             self.performance = None
@@ -156,11 +156,9 @@ class SwingTradeBacktest:
         win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
         total_profit = trades_df['profit'].sum()
         
-        # 平均利益/損失
         avg_profit = trades_df[trades_df['profit'] > 0]['profit'].sum() / winning_trades if winning_trades > 0 else 0
         avg_loss = trades_df[trades_df['profit'] <= 0]['profit'].sum() / losing_trades if losing_trades > 0 else 0
         
-        # 平均利益率/損失率
         avg_profit_pct = trades_df[trades_df['profit'] > 0]['profit_pct'].mean() if winning_trades > 0 else 0
         avg_loss_pct = trades_df[trades_df['profit'] <= 0]['profit_pct'].mean() if losing_trades > 0 else 0
 
@@ -199,6 +197,7 @@ class SwingTradeBacktest:
             self._calculate_performance()
             return self.performance
         except Exception:
+            # エラーが発生した場合はNoneを返し、app.py側で警告を出せるようにする
             return None
 
 
@@ -211,6 +210,7 @@ class SwingTradeBacktest:
         width = 0.6
         for i, (idx, row) in enumerate(data.iterrows()):
             open_p, close_p, high_p, low_p = row['Open'], row['Close'], row['High'], row['Low']
+            # 陽線: 緑, 陰線: 赤 に統一
             color = 'green' if close_p >= open_p else 'red'
             
             # ヒゲ
@@ -222,6 +222,7 @@ class SwingTradeBacktest:
             ax.add_patch(rect)
         
         # MAのプロット
+        # dataはplot_dataのコピーなので、MAカラムはそのまま使える
         ax.plot(data.index, data['MA_Short'], label=f'MA{self.rules.ma_short}', color='orange', linewidth=1.5)
         ax.plot(data.index, data['MA_Mid'], label=f'MA{self.rules.ma_mid}', color='blue', linewidth=1.5)
         ax.plot(data.index, data['MA_Long'], label=f'MA{self.rules.ma_long}', color='purple', linewidth=1.5)
@@ -232,28 +233,35 @@ class SwingTradeBacktest:
         if self.data is None or self.trades_df.empty:
             return None
 
-        data_indices = np.arange(len(self.data))
+        # --- 修正: データコピーとインデックスリセットをローカルに行う ---
+        plot_data = self.data.reset_index().copy() 
+        data_indices = np.arange(len(plot_data))
+        plot_data.index = data_indices
+        # yfinanceのデフォルト挙動によりインデックスが'Date'カラムになっていることを想定
+        # -----------------------------------------------------------
         
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=False)
         fig.suptitle(f"{self.ticker} | バックテスト概要", fontsize=16, fontweight='bold')
         
         # --- Ax1: 価格とMA ---
-        self.data.reset_index(inplace=True)
-        self.data.index = data_indices
-        self._plot_candlestick(ax1, self.data)
+        self._plot_candlestick(ax1, plot_data) # <--- 修正: plot_dataを渡す
         
         # エントリー/エグジットポイントの描画
         for _, trade in self.trades_df.iterrows():
-            entry_idx = self.data[self.data['Date'] == trade['entry_date']].index[0]
-            exit_idx = self.data[self.data['Date'] == trade['exit_date']].index[0]
+            # 日付に対応するインデックスを取得
+            # 修正: plot_dataの'Date'カラムと新しいインデックスを使用
+            entry_idx = plot_data[plot_data['Date'] == trade['entry_date']].index[0]
+            exit_idx = plot_data[plot_data['Date'] == trade['exit_date']].index[0]
             
             # エントリー
             ax1.scatter(entry_idx, trade['entry_price'], 
-                        marker='^', color='darkgreen', s=100, zorder=10, label='Entry' if ax1.get_legend() is None else None)
+                        marker='^', color='darkgreen', s=100, zorder=10, 
+                        label='Entry' if ax1.get_legend() is None else None)
             # エグジット
             exit_color = 'red' if trade['profit'] < 0 else 'blue'
             ax1.scatter(exit_idx, trade['exit_price'], 
-                        marker='v', color=exit_color, s=100, zorder=10, label='Exit' if ax1.get_legend() is None else None)
+                        marker='v', color=exit_color, s=100, zorder=10, 
+                        label='Exit' if ax1.get_legend() is None else None)
             
             # トレード期間のハイライト (緑:勝ち, 赤:負け)
             trade_color = 'lightgreen' if trade['profit'] > 0 else 'salmon'
@@ -262,7 +270,11 @@ class SwingTradeBacktest:
         ax1.set_title("価格推移とトレードポイント", fontsize=12)
         ax1.set_ylabel("価格")
         ax1.grid(True, alpha=0.3)
-        ax1.legend()
+        # 凡例を一度だけ表示するためにハンドル/ラベルをフィルタリング
+        handles, labels = ax1.get_legend_handles_labels()
+        unique_labels = dict(zip(labels, handles))
+        ax1.legend(unique_labels.values(), unique_labels.keys())
+
 
         # --- Ax2: エクイティカーブ ---
         equity_indices = np.arange(len(self.equity_curve))
@@ -283,7 +295,8 @@ class SwingTradeBacktest:
         
         # X軸の日付ラベル設定（共有しないため個別に設定）
         ax1.set_xticks(data_indices[::len(data_indices)//5 or 1])
-        ax1.set_xticklabels([self.data['Date'].iloc[i].strftime('%Y-%m-%d') for i in data_indices[::len(data_indices)//5 or 1]], rotation=45, ha='right')
+        # 修正: plot_dataのDateカラムを参照
+        ax1.set_xticklabels([plot_data['Date'].iloc[i].strftime('%Y-%m-%d') for i in data_indices[::len(data_indices)//5 or 1]], rotation=45, ha='right')
 
         plt.tight_layout()
         return fig
@@ -296,15 +309,23 @@ class SwingTradeBacktest:
 
         figs = []
         
+        # --- 修正: データコピーとインデックスリセットをローカルに行う ---
+        full_plot_data = self.data.reset_index().copy() 
+        # -----------------------------------------------------------
+        
         for idx, trade in self.trades_df.iterrows():
             # トレード期間を抽出 (前後に5日間のバッファを持たせる)
-            start_idx = self.data[self.data['Date'] == trade['entry_date']].index[0] - 5
-            end_idx = self.data[self.data['Date'] == trade['exit_date']].index[0] + 5
+            # 修正: full_plot_dataの'Date'カラムを使ってインデックスを検索
+            start_date_idx = full_plot_data[full_plot_data['Date'] == trade['entry_date']].index[0]
+            exit_date_idx = full_plot_data[full_plot_data['Date'] == trade['exit_date']].index[0]
+            
+            start_idx = start_date_idx - 5
+            end_idx = exit_date_idx + 5
             
             start_idx = max(0, start_idx)
-            end_idx = min(len(self.data) - 1, end_idx)
+            end_idx = min(len(full_plot_data) - 1, end_idx)
 
-            trade_data = self.data.iloc[start_idx:end_idx].copy()
+            trade_data = full_plot_data.iloc[start_idx:end_idx].copy()
             
             fig, ax = plt.subplots(figsize=(10, 6))
             
@@ -337,7 +358,6 @@ class SwingTradeBacktest:
             
             # 損切りラインの描画 (損切りエグジットの場合のみ)
             if trade['exit_reason'] == 'Stop Loss':
-                # 損切り価格はエグジット価格として記録されている
                 ax.axhline(trade['exit_price'], color='red', linestyle='--', linewidth=1, label='Stop Loss Level')
 
             title = f"Trade #{idx+1} | Profit: {trade['profit']:.0f} ({trade['profit_pct']:.2f}%) | {trade['exit_reason']}"
@@ -348,6 +368,7 @@ class SwingTradeBacktest:
             # X軸の日付調整
             tick_idxs = np.linspace(0, len(trade_data)-1, 6, dtype=int)
             ax.set_xticks(tick_idxs)
+            # 修正: trade_dataのDateカラムを参照
             ax.set_xticklabels([trade_data.iloc[i]['Date'].strftime('%m/%d') for i in tick_idxs])
 
             plt.tight_layout()
