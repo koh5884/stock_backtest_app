@@ -5,13 +5,10 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
 from datetime import datetime, timedelta
-import warnings
 
 # Streamlitでの描画用にバックエンド設定
 import matplotlib
 matplotlib.use('Agg')  
-
-warnings.filterwarnings('ignore')
 
 class TradingRules:
     """トレードルールの設定を管理するクラス"""
@@ -30,241 +27,318 @@ class TradingRules:
         self.stop_loss_percentage = 0.98  # 損切り (2%)
         self.stop_loss_lookback = 5       # 直近安値を何日分見るか
 
-        # === 表示設定 ===
-        self.show_detailed_charts = False
 
 class SwingTradeBacktest:
     """シンプル化されたバックテストクラス（Streamlit統合用）"""
 
-    def __init__(self, ticker, start_date, end_date, rules=None):
+    def __init__(self, ticker, start_date, end_date, rules: TradingRules):
         self.ticker = ticker
         self.start_date = start_date
         self.end_date = end_date
-        self.rules = rules if rules else TradingRules()
-        self.daily_data = None
-        self.trades = []
-        self.trades_df = None # 初期化を追加
-# ... (以降のメソッドが続く)
+        self.rules = rules
+        self.data = None
+        self.trades_df = pd.DataFrame()
+        self.performance = None
+        self.equity_curve = None
 
-    # ... (fetch_data, calculate_indicators, generate_signals, _record_trade は変更なし) ...
-    # 省略しています。元のコードのまま記述してください。
-    
-    def fetch_data(self):
-        # (元のコードと同じ)
+
+    def _prepare_data(self):
+        """データを取得し、MAとシグナルを計算する"""
         try:
-            extended_start = (pd.to_datetime(self.start_date) - timedelta(days=400)).strftime('%Y-%m-%d')
-            stock = yf.Ticker(self.ticker)
-            self.daily_data = stock.history(start=extended_start, end=self.end_date)
-            if self.daily_data.empty:
-                raise ValueError(f"データが取得できませんでした: {self.ticker}")
-            self.daily_data = self.daily_data[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+            # データ取得
+            self.data = yf.download(
+                self.ticker, 
+                start=self.start_date, 
+                end=self.end_date, 
+                progress=False
+            )
+            if self.data.empty:
+                raise ValueError("指定された期間のデータが取得できませんでした。")
         except Exception as e:
-            raise Exception(f"データ取得エラー ({self.ticker}): {str(e)}")
+            raise Exception(f"データ取得エラー: {e}")
 
-    def calculate_indicators(self):
-        # (元のコードと同じ)
-        df = self.daily_data.copy()
-        df['MA_short'] = df['Close'].rolling(window=self.rules.ma_short).mean()
-        df['MA_mid'] = df['Close'].rolling(window=self.rules.ma_mid).mean()
-        df['MA_long'] = df['Close'].rolling(window=self.rules.ma_long).mean()
-        df['MA_mid_slope'] = (df['MA_mid'] - df['MA_mid'].shift(self.rules.slope_period)) / \
-                             df['MA_mid'].shift(self.rules.slope_period) * 100
-        df['Recent_Low'] = df['Low'].rolling(window=self.rules.stop_loss_lookback).min()
-        self.daily_data = df
+        # MA計算
+        self.data['MA_Short'] = self.data['Close'].rolling(self.rules.ma_short).mean()
+        self.data['MA_Mid'] = self.data['Close'].rolling(self.rules.ma_mid).mean()
+        self.data['MA_Long'] = self.data['Close'].rolling(self.rules.ma_long).mean()
+        
+        # 傾き計算
+        ma_mid_shifted = self.data['MA_Mid'].shift(self.rules.slope_period)
+        self.data['Slope_MA_Mid'] = (self.data['MA_Mid'] / ma_mid_shifted - 1) * 100
+        
+        self.data.dropna(inplace=True)
 
-    def generate_signals(self):
-        # (元のコードと同じ)
-        df = self.daily_data.copy()
-        df = df[df.index >= self.start_date]
-        position = None
-        entry_signal_date = None
 
-        for i in range(1, len(df)):
-            current_date = df.index[i]
-            prev_date = df.index[i-1]
-            current = df.iloc[i]
-            prev = df.iloc[i-1]
+    def _run_strategy(self):
+        """トレード戦略のロジックを実行する"""
+        if self.data is None or self.data.empty:
+            return
 
-            if position is None:
-                if entry_signal_date == prev_date:
-                    entry_price = current['Open']
-                    stop_loss = prev['Recent_Low'] * self.rules.stop_loss_percentage
-                    position = {'entry_date': current_date, 'entry_price': entry_price, 'stop_loss': stop_loss}
-                    entry_signal_date = None
-                    continue
+        trades = []
+        in_trade = False
+        entry_price = 0
+        entry_date = None
+        
+        data = self.data.copy()
 
-                if pd.notna(current['MA_short']) and pd.notna(current['MA_mid']) and pd.notna(current['MA_long']):
-                    pullback = current['MA_short'] < current['MA_mid']
-                    ma_trending = pd.notna(current['MA_mid_slope']) and current['MA_mid_slope'] > self.rules.slope_threshold
-                    long_trend = current['MA_mid'] > current['MA_long']
-                    entry_trigger = current['High'] >= current['MA_short']
+        for i in range(len(data)):
+            row = data.iloc[i]
+            
+            # --- エントリー条件 ---
+            C1_Trend = row['Slope_MA_Mid'] >= self.rules.slope_threshold
+            C2_Long = row['MA_Mid'] > row['MA_Long']
+            C3_Pullback = row['MA_Short'] < row['MA_Mid']
+            C4_Trigger = row['Close'] > row['MA_Short']
+            
+            entry_signal = C1_Trend and C2_Long and C3_Pullback and C4_Trigger
 
-                    if pullback and ma_trending and long_trend and entry_trigger:
-                        entry_signal_date = current_date
-            else:
-                if current['Close'] <= position['stop_loss']:
-                    self._record_trade(position, current_date, current['Close'], 'Stop Loss')
-                    position = None
-                elif pd.notna(current['MA_short']) and current['Close'] < current['MA_short']:
-                    if i+1 < len(df):
-                        exit_price = df.iloc[i+1]['Open']
-                        exit_date = df.index[i+1]
-                    else:
-                        exit_price = current['Close']
-                        exit_date = current_date
-                    self._record_trade(position, exit_date, exit_price, 'MA Cross')
-                    position = None
+            if not in_trade and entry_signal:
+                # エントリー
+                in_trade = True
+                entry_price = row['Close']
+                entry_date = data.index[i]
+            
+            # --- エグジット条件 ---
+            if in_trade:
+                exit_signal = False
+                exit_reason = ""
+                exit_price = 0
+                
+                # 損切りライン (直近N日間の安値 * 損切り率)
+                # 損切り率が100%の場合は直近安値、98%の場合は直近安値の2%下
+                lookback_low = data['Low'].iloc[max(0, i - self.rules.stop_loss_lookback):i].min()
+                stop_loss_level = lookback_low * self.rules.stop_loss_percentage
+                
+                # 損切り判定
+                if row['Low'] < stop_loss_level:
+                    exit_signal = True
+                    exit_reason = "Stop Loss"
+                    exit_price = stop_loss_level 
 
-    def _record_trade(self, position, exit_date, exit_price, exit_reason):
-        # (元のコードと同じ)
-        profit = exit_price - position['entry_price']
-        profit_pct = (exit_price / position['entry_price'] - 1) * 100
-        holding_days = (exit_date - position['entry_date']).days
-        self.trades.append({
-            'entry_date': position['entry_date'], 'exit_date': exit_date,
-            'entry_price': position['entry_price'], 'exit_price': exit_price,
-            'profit': profit, 'profit_pct': profit_pct,
-            'exit_reason': exit_reason, 'holding_days': holding_days
-        })
+                # トレード終了処理
+                if exit_signal or (i == len(data) - 1):
+                    exit_date = data.index[i] if exit_signal else data.index[-1]
+                    final_exit_price = exit_price if exit_signal else row['Close']
+                    
+                    if exit_date > entry_date:
+                        profit = final_exit_price - entry_price
+                        profit_pct = (final_exit_price / entry_price - 1) * 100
+                        holding_days = (exit_date - entry_date).days
 
-    def calculate_performance(self):
-        # (元のコードと同じ)
-        if len(self.trades) == 0:
-            return None
-        trades_df = pd.DataFrame(self.trades)
+                        trades.append({
+                            'entry_date': entry_date,
+                            'entry_price': entry_price,
+                            'exit_date': exit_date,
+                            'exit_price': final_exit_price,
+                            'profit': profit,
+                            'profit_pct': profit_pct,
+                            'holding_days': holding_days,
+                            'exit_reason': exit_reason if exit_signal else "Time Out"
+                        })
+                    
+                    in_trade = False
+        
+        self.trades_df = pd.DataFrame(trades)
+
+
+    def _calculate_performance(self):
+        """パフォーマンス指標を計算する"""
+        if self.trades_df.empty:
+            self.performance = None
+            return
+
+        trades_df = self.trades_df.copy()
+
         total_trades = len(trades_df)
         winning_trades = len(trades_df[trades_df['profit'] > 0])
-        losing_trades = len(trades_df[trades_df['profit'] <= 0])
-        win_rate = winning_trades / total_trades * 100 if total_trades > 0 else 0
+        losing_trades = total_trades - winning_trades
         
-        # 修正: numpy型の警告回避のため float変換を入れることがあります
+        win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
         total_profit = trades_df['profit'].sum()
-        avg_profit = trades_df[trades_df['profit'] > 0]['profit'].mean() if winning_trades > 0 else 0
-        avg_loss = trades_df[trades_df['profit'] <= 0]['profit'].mean() if losing_trades > 0 else 0
+        
+        # 平均利益/損失
+        avg_profit = trades_df[trades_df['profit'] > 0]['profit'].sum() / winning_trades if winning_trades > 0 else 0
+        avg_loss = trades_df[trades_df['profit'] <= 0]['profit'].sum() / losing_trades if losing_trades > 0 else 0
+        
+        # 平均利益率/損失率
         avg_profit_pct = trades_df[trades_df['profit'] > 0]['profit_pct'].mean() if winning_trades > 0 else 0
         avg_loss_pct = trades_df[trades_df['profit'] <= 0]['profit_pct'].mean() if losing_trades > 0 else 0
 
+        # ドローダウン計算
         trades_df['cumulative_profit'] = trades_df['profit'].cumsum()
         trades_df['running_max'] = trades_df['cumulative_profit'].cummax()
         trades_df['drawdown'] = trades_df['cumulative_profit'] - trades_df['running_max']
         max_drawdown = trades_df['drawdown'].min()
+
         avg_holding_days = trades_df['holding_days'].mean()
 
         self.performance = {
-            'total_trades': total_trades, 'winning_trades': winning_trades, 'losing_trades': losing_trades,
-            'win_rate': win_rate, 'total_profit': total_profit,
-            'avg_profit': avg_profit, 'avg_loss': avg_loss,
-            'avg_profit_pct': avg_profit_pct, 'avg_loss_pct': avg_loss_pct,
-            'max_drawdown': max_drawdown, 'avg_holding_days': avg_holding_days,
-            'profit_factor': abs(avg_profit / avg_loss) if avg_loss != 0 else 0
+            'total_trades': total_trades,
+            'winning_trades': winning_trades,
+            'losing_trades': losing_trades,
+            'win_rate': win_rate,
+            'total_profit': total_profit,
+            'avg_profit': avg_profit,
+            'avg_loss': avg_loss,
+            'avg_profit_pct': avg_profit_pct,
+            'avg_loss_pct': avg_loss_pct,
+            'max_drawdown': max_drawdown,
+            'avg_holding_days': avg_holding_days,
+            'profit_factor': abs(avg_profit / avg_loss) if avg_loss != 0 else np.inf
         }
-        self.trades_df = trades_df
-        return self.performance
 
-    def run(self, show_charts=False, show_detailed=False):
-        """バックテスト実行（計算のみ）"""
-        self.fetch_data()
-        self.calculate_indicators()
-        self.generate_signals()
-        return self.calculate_performance()
+        # エクイティカーブ（累積損益）
+        self.equity_curve = trades_df[['cumulative_profit']].reset_index(drop=True)
 
-    # === 追加・修正した描画用メソッド ===
 
-    def plot_overview(self):
-        """バックテスト期間全体のグラフを作成してFigureを返す"""
-        if self.trades_df is None or len(self.trades_df) == 0:
+    def run(self):
+        """バックテストを実行し、結果を返す"""
+        try:
+            self._prepare_data()
+            self._run_strategy()
+            self._calculate_performance()
+            return self.performance
+        except Exception:
             return None
 
-        fig, axes = plt.subplots(3, 1, figsize=(12, 12), gridspec_kw={'height_ratios': [2, 1, 1]})
 
-        # === グラフ1: 価格チャート + エントリー・エグジット ===
-        ax1 = axes[0]
-        chart_data = self.daily_data[self.daily_data.index >= self.start_date].copy()
+    # =======================================================
+    # 📈 グラフ描画メソッド (Streamlit用)
+    # =======================================================
 
-        ax1.plot(chart_data.index, chart_data['Close'], label='Close', linewidth=1, color='black', alpha=0.6)
-        ax1.plot(chart_data.index, chart_data['MA_short'], label=f'MA{self.rules.ma_short}', linewidth=1, color='blue', alpha=0.5)
-        ax1.plot(chart_data.index, chart_data['MA_mid'], label=f'MA{self.rules.ma_mid}', linewidth=1, color='orange', alpha=0.5)
-        ax1.plot(chart_data.index, chart_data['MA_long'], label=f'MA{self.rules.ma_long}', linewidth=1, color='red', alpha=0.5)
+    def _plot_candlestick(self, ax, data):
+        """ローソク足描画ヘルパー (陽線: 緑, 陰線: 赤)"""
+        width = 0.6
+        for i, (idx, row) in enumerate(data.iterrows()):
+            open_p, close_p, high_p, low_p = row['Open'], row['Close'], row['High'], row['Low']
+            color = 'green' if close_p >= open_p else 'red'
+            
+            # ヒゲ
+            ax.plot([i, i], [low_p, high_p], color='black', linewidth=1)
+            # 本体
+            rect_bottom = open_p if close_p >= open_p else close_p
+            height = abs(close_p - open_p)
+            rect = Rectangle((i - width/2, rect_bottom), width, height, facecolor=color, edgecolor='black', linewidth=1)
+            ax.add_patch(rect)
+        
+        # MAのプロット
+        ax.plot(data.index, data['MA_Short'], label=f'MA{self.rules.ma_short}', color='orange', linewidth=1.5)
+        ax.plot(data.index, data['MA_Mid'], label=f'MA{self.rules.ma_mid}', color='blue', linewidth=1.5)
+        ax.plot(data.index, data['MA_Long'], label=f'MA{self.rules.ma_long}', color='purple', linewidth=1.5)
 
+
+    def plot_overview(self):
+        """エクイティカーブと価格の全体像をプロットする"""
+        if self.data is None or self.trades_df.empty:
+            return None
+
+        data_indices = np.arange(len(self.data))
+        
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=False)
+        fig.suptitle(f"{self.ticker} | バックテスト概要", fontsize=16, fontweight='bold')
+        
+        # --- Ax1: 価格とMA ---
+        self.data.reset_index(inplace=True)
+        self.data.index = data_indices
+        self._plot_candlestick(ax1, self.data)
+        
+        # エントリー/エグジットポイントの描画
         for _, trade in self.trades_df.iterrows():
+            entry_idx = self.data[self.data['Date'] == trade['entry_date']].index[0]
+            exit_idx = self.data[self.data['Date'] == trade['exit_date']].index[0]
+            
             # エントリー
-            ax1.scatter(trade['entry_date'], trade['entry_price'], marker='^', color='green', s=80, zorder=5)
-            # エグジット (黒枠線を追加して視認性向上)
-            if 'Stop Loss' in trade['exit_reason']:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='v', color='red', s=80, zorder=5, edgecolors='black', linewidth=1.5)
-            else:
-                ax1.scatter(trade['exit_date'], trade['exit_price'], marker='o', color='blue', s=80, zorder=5, edgecolors='black', linewidth=1.5)
-            # 線で結ぶ
-            color = 'green' if trade['profit'] > 0 else 'red'
-            ax1.plot([trade['entry_date'], trade['exit_date']], [trade['entry_price'], trade['exit_price']],
-                     color=color, linewidth=1.5, linestyle='--', alpha=0.5)
-
-        ax1.set_title(f'Overview: {self.ticker}', fontsize=12, fontweight='bold')
-        ax1.legend(loc='upper left', fontsize='small')
+            ax1.scatter(entry_idx, trade['entry_price'], 
+                        marker='^', color='darkgreen', s=100, zorder=10, label='Entry' if ax1.get_legend() is None else None)
+            # エグジット
+            exit_color = 'red' if trade['profit'] < 0 else 'blue'
+            ax1.scatter(exit_idx, trade['exit_price'], 
+                        marker='v', color=exit_color, s=100, zorder=10, label='Exit' if ax1.get_legend() is None else None)
+            
+            # トレード期間のハイライト (緑:勝ち, 赤:負け)
+            trade_color = 'lightgreen' if trade['profit'] > 0 else 'salmon'
+            ax1.axvspan(entry_idx, exit_idx, facecolor=trade_color, alpha=0.2)
+        
+        ax1.set_title("価格推移とトレードポイント", fontsize=12)
+        ax1.set_ylabel("価格")
         ax1.grid(True, alpha=0.3)
+        ax1.legend()
 
-        # === グラフ2: 累積損益 ===
-        ax2 = axes[1]
-        ax2.plot(self.trades_df['exit_date'], self.trades_df['cumulative_profit'], label='Cumulative P&L', color='blue')
-        ax2.axhline(0, color='gray', linestyle='--', linewidth=1)
-        ax2.fill_between(self.trades_df['exit_date'], self.trades_df['cumulative_profit'], 0, where=(self.trades_df['cumulative_profit']>=0), color='green', alpha=0.1)
-        ax2.fill_between(self.trades_df['exit_date'], self.trades_df['cumulative_profit'], 0, where=(self.trades_df['cumulative_profit']<0), color='red', alpha=0.1)
-        ax2.set_title('Cumulative Profit', fontsize=10)
+        # --- Ax2: エクイティカーブ ---
+        equity_indices = np.arange(len(self.equity_curve))
+        ax2.plot(equity_indices, self.equity_curve['cumulative_profit'], 
+                 color='darkblue', linewidth=2, label='Equity Curve')
+        ax2.fill_between(equity_indices, self.equity_curve['cumulative_profit'], 0, 
+                         color='lightblue', alpha=0.3)
+
+        # ドローダウンの描画
+        ax2.plot(equity_indices, self.equity_curve['running_max'].iloc[:len(equity_indices)], 
+                 linestyle='--', color='orange', label='Running Max')
+        
+        ax2.set_title("累積損益 (Equity Curve)", fontsize=12)
+        ax2.set_ylabel("累積損益")
+        ax2.set_xlabel("トレード回数")
         ax2.grid(True, alpha=0.3)
-
-        # === グラフ3: トレード別損益 ===
-        ax3 = axes[2]
-        colors = ['green' if x > 0 else 'red' for x in self.trades_df['profit']]
-        ax3.bar(range(len(self.trades_df)), self.trades_df['profit'], color=colors, alpha=0.7)
-        ax3.axhline(0, color='black', linewidth=0.5)
-        ax3.set_title('Trade P&L', fontsize=10)
-        ax3.grid(True, alpha=0.3)
+        ax2.legend()
+        
+        # X軸の日付ラベル設定（共有しないため個別に設定）
+        ax1.set_xticks(data_indices[::len(data_indices)//5 or 1])
+        ax1.set_xticklabels([self.data['Date'].iloc[i].strftime('%Y-%m-%d') for i in data_indices[::len(data_indices)//5 or 1]], rotation=45, ha='right')
 
         plt.tight_layout()
         return fig
 
+
     def plot_all_trades(self):
-        """全トレードの詳細チャートを作成してFigureのリストを返す"""
-        if self.trades_df is None or len(self.trades_df) == 0:
+        """全ての個別トレードの詳細をプロットする"""
+        if self.trades_df.empty or self.data is None:
             return []
 
         figs = []
+        
         for idx, trade in self.trades_df.iterrows():
-            start_date = trade['entry_date'] - pd.Timedelta(days=20)
-            end_date = trade['exit_date'] + pd.Timedelta(days=10)
+            # トレード期間を抽出 (前後に5日間のバッファを持たせる)
+            start_idx = self.data[self.data['Date'] == trade['entry_date']].index[0] - 5
+            end_idx = self.data[self.data['Date'] == trade['exit_date']].index[0] + 5
+            
+            start_idx = max(0, start_idx)
+            end_idx = min(len(self.data) - 1, end_idx)
 
-            trade_data = self.daily_data[(self.daily_data.index >= start_date) & (self.daily_data.index <= end_date)].copy()
-            if trade_data.empty:
-                continue
-
+            trade_data = self.data.iloc[start_idx:end_idx].copy()
+            
             fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # X軸のインデックスを0から振り直し
+            trade_data.reset_index(drop=True, inplace=True) 
 
-            # ローソク足描画ヘルパー呼び出し
+            # ローソク足とMAの描画
             self._plot_candlestick(ax, trade_data)
+            
+            # エントリー/エグジットポイントの描画
+            entry_idx = trade_data[trade_data['Date'] == trade['entry_date']].index[0]
+            exit_idx = trade_data[trade_data['Date'] == trade['exit_date']].index[0]
 
-            # MA
-            x_range = range(len(trade_data))
-            ax.plot(x_range, trade_data['MA_short'].values, label='MA7', color='blue', alpha=0.5)
-            ax.plot(x_range, trade_data['MA_mid'].values, label='MA20', color='orange', alpha=0.5)
-            ax.plot(x_range, trade_data['MA_long'].values, label='MA60', color='red', alpha=0.5)
-
-            # ポイント
-            try:
-                entry_idx = trade_data.index.get_loc(trade['entry_date'])
-                exit_idx = trade_data.index.get_loc(trade['exit_date'])
-                
-                ax.scatter(entry_idx, trade['entry_price'], marker='^', color='green', s=150, zorder=10, label='Entry')
-
-                exit_color = 'red' if trade['profit'] < 0 else 'blue'
-                ax.scatter(exit_idx, trade['exit_price'],
-                           marker='v' if trade['profit']<0 else 'o',
-                           color=exit_color, 
-                           s=150, zorder=10, 
-                           edgecolors='black', 
-                           linewidth=2,        
-                           label='Exit') 
-            except KeyError:
-                pass # 日付インデックスが見つからない場合の安全策
+            # エントリーポイント
+            ax.scatter(entry_idx, trade['entry_price'], 
+                       marker='^', color='darkgreen', 
+                       s=150, zorder=10, 
+                       edgecolors='black', 
+                       linewidth=2,
+                       label='Entry Price')
+            
+            # エグジットポイント
+            exit_color = 'red' if trade['profit'] < 0 else 'blue'
+            ax.scatter(exit_idx, trade['exit_price'], 
+                       marker='v', color=exit_color, 
+                       s=150, zorder=10, 
+                       edgecolors='black', 
+                       linewidth=2,        
+                       label='Exit') 
+            
+            # 損切りラインの描画 (損切りエグジットの場合のみ)
+            if trade['exit_reason'] == 'Stop Loss':
+                # 損切り価格はエグジット価格として記録されている
+                ax.axhline(trade['exit_price'], color='red', linestyle='--', linewidth=1, label='Stop Loss Level')
 
             title = f"Trade #{idx+1} | Profit: {trade['profit']:.0f} ({trade['profit_pct']:.2f}%) | {trade['exit_reason']}"
             ax.set_title(title, fontsize=12, fontweight='bold')
@@ -274,23 +348,9 @@ class SwingTradeBacktest:
             # X軸の日付調整
             tick_idxs = np.linspace(0, len(trade_data)-1, 6, dtype=int)
             ax.set_xticks(tick_idxs)
-            ax.set_xticklabels([trade_data.index[i].strftime('%m/%d') for i in tick_idxs])
+            ax.set_xticklabels([trade_data.iloc[i]['Date'].strftime('%m/%d') for i in tick_idxs])
 
             plt.tight_layout()
             figs.append(fig)
             
         return figs
-
-    def _plot_candlestick(self, ax, data):
-        """ローソク足描画ヘルパー"""
-        width = 0.6
-        for i, (idx, row) in enumerate(data.iterrows()):
-            open_p, close_p, high_p, low_p = row['Open'], row['Close'], row['High'], row['Low']
-            color = 'red' if close_p >= open_p else 'blue' # 日本式: 赤が陽線
-            
-            # ヒゲ
-            ax.plot([i, i], [low_p, high_p], color=color, linewidth=1)
-            # 実体
-            rect = Rectangle((i - width/2, min(open_p, close_p)), width, abs(close_p - open_p),
-                             facecolor=color, edgecolor=color)
-            ax.add_patch(rect)
